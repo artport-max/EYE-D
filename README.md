@@ -82,5 +82,46 @@ EYE-D/
 
 ---
 
+## 🚀 설치 및 실행 방법 (Installation & Usage)
+
+### 1. 환경 설정 및 패키지 설치
+- **Anaconda**를 사용하여 격리된 가상 환경에서 작업하는 것을 권장합니다.
+- Python 3.10 이상이 필요합니다.
+
+```bash
+# conda 환경 생성 및 활성화
+conda create -n cv_poc python=3.10
+conda activate cv_poc
+
+# 필수 패키지 설치
+pip install ultralytics torch torchvision torchaudio opencv-python numpy
+pip install qdrant-client fastapi uvicorn psutil
+# (ByteTrack 및 Torchreid는 공식 저장소 가이드에 따라 별도로 추가 설치를 진행합니다.)
+```
+
+### 2. 인프라 준비 (로컬 Vector DB)
+에지단에서 생성되는 특징 벡터(Re-ID)의 로컬 캐싱 및 매칭을 위해 Qdrant DB를 실행해야 합니다.
+
+```bash
+# docker-compose를 이용해 백그라운드에서 Qdrant 실행
+docker-compose up -d qdrant
+```
+
+### 3. Edge Pipeline 실행
+모든 준비가 완료되었다면 프로젝트 최상위 경로에서 `main.py`를 통해 파이프라인을 구동합니다.
+
+```bash
+# 프로젝트 최상단 디렉토리에서 실행
+PYTHONPATH=. python main.py --source 0 --camera-id cam_01 --display
+```
+
+**실행 주요 인자(Arguments)**
+- `--source`: 분석할 영상 소스. RTSP 주소, 비디오 파일 경로 또는 로컬 웹캠 ID (기본값: `0`)
+- `--camera-id`: 현재 카메라의 고유 식별자 (기본값: `cam_01`)
+- `--tensorrt`: TensorRT 엔진 활성화 (Jetson 환경 최적화)
+- `--display`: 처리 결과를 화면에 시각화하여 확인 (UI 지원 환경에서만 동작)
+
+---
+
 ## 📄 추가 문서
 시스템 요구사항, 목표 성능 (45~60 FPS), 비기능적 요구사항 및 상세 QA 체크리스트에 대한 자세한 내용은 [docs/PRD.md](./docs/PRD.md) 문서를 참고해 주시기 바랍니다.
