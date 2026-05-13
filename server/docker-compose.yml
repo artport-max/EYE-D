@@ -1,0 +1,26 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: kote-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kote
+      POSTGRES_PASSWORD: kote_dev_pw
+      POSTGRES_DB: kote
+    ports:
+      - "5432:5432"
+    volumes:
+      # ── 옵션 A: named volume (기본) ──────────────────────────────
+      # 데이터가 Docker 내부 볼륨에 저장됨. C: 가 가득 차면 옵션 B로 전환.
+      - kote_pgdata:/var/lib/postgresql/data
+
+      # ── 옵션 B: D: 바인드 마운트 ─────────────────────────────────
+      # 위 줄을 주석 처리하고 아래 줄의 주석을 풀면 데이터가 D:에 직접 저장됨.
+      # 적용 전에 PowerShell에서: mkdir D:\docker-data\kote-postgres
+      # 자세한 절차는 ../D드라이브_분산배치_가이드.md 의 3.3 참고.
+      # - "D:/docker-data/kote-postgres:/var/lib/postgresql/data"
+
+      - ./app/db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+
+volumes:
+  kote_pgdata:
