@@ -356,6 +356,9 @@ curl http://127.0.0.1:8000/health
 
 # 6. 엣지 시뮬레이션 (새 터미널)
 python tools/mock_sender.py
+
+# 7. DB 종료
+docker compose down
 ```
 
 ### 방법 B: pytest 단위 테스트 (DB 없이)
