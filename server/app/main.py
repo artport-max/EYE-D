@@ -30,6 +30,17 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+from fastapi.middleware.cors import CORSMiddleware
+
+# 개발 환경 UI 연동을 위한 CORS 설정
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # 도메인별 라우터 등록
 app.include_router(security_router.router)
 app.include_router(art_router.router)
@@ -48,3 +59,21 @@ async def health() -> dict:
 async def token_stats():
     """현재 토큰 사용 통계 (운영자/디버그용)."""
     return governor.stats()
+
+import os
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
+# FastAPI 앱(main.py)의 위치는 server/app/main.py 이므로
+# 프로젝트 루트의 frontend/dist 를 가리키기 위해 두 단계 위로 올라갑니다.
+ui_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist"))
+
+if os.path.exists(ui_dir):
+    # 1. 빌드된 에셋(js, css, 이미지 등) 마운트
+    app.mount("/assets", StaticFiles(directory=os.path.join(ui_dir, "assets")), name="assets")
+
+    # 2. React Router (SPA) 지원용 Catch-all 라우터
+    # 기존 API 라우트에 걸리지 않는 모든 요청을 index.html로 반환
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_ui(full_path: str):
+        return FileResponse(os.path.join(ui_dir, "index.html"))
