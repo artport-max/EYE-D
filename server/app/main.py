@@ -45,6 +45,55 @@ app.add_middleware(
 app.include_router(security_router.router)
 app.include_router(art_router.router)
 
+import os
+import subprocess
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+# 프론트엔드 경로 설정
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+frontend_dir = os.path.join(BASE_DIR, "frontend")
+frontend_dist = os.path.join(frontend_dir, "dist")
+
+# 서버 실행 시 자동으로 프론트엔드 빌드 수행
+if os.path.isdir(frontend_dir):
+    print("[startup] Building frontend automatically...")
+    try:
+        # 윈도우 환경을 고려해 shell=True 추가 (Linux/Mac에서는 없어도 되지만 호환성 위해)
+        subprocess.run(["npm", "install"], cwd=frontend_dir, check=True, shell=os.name == 'nt')
+        subprocess.run(["npm", "run", "build"], cwd=frontend_dir, check=True, shell=os.name == 'nt')
+        print("[startup] Frontend build completed.")
+    except Exception as e:
+        print(f"[startup] Frontend build failed: {e}")
+
+if os.path.isdir(frontend_dist):
+    # 정적 파일 마운트 (js, css 등)
+    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="assets")
+    
+    # SPA 라우팅 지원 (React Router 등 대응)
+    @app.get("/{catchall:path}")
+    async def serve_react_app(catchall: str):
+        # API 경로는 프론트엔드 라우팅에서 제외
+        if catchall.startswith("api/") or catchall == "health":
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
+        
+        file_path = os.path.join(frontend_dist, catchall)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
+        
+        # 매칭되는 파일이 없으면 index.html 반환 (클라이언트 사이드 라우팅용)
+        index_file = os.path.join(frontend_dist, "index.html")
+        if os.path.isfile(index_file):
+            return FileResponse(index_file)
+        return JSONResponse({"detail": "Not Found"}, status_code=404)
+else:
+    @app.get("/")
+    def read_root():
+        return {
+            "message": "EYE-D Backend is running.", 
+            "ui_status": "Frontend build not found. Please run 'npm install && npm run build' in the frontend folder."
+        }
+
 
 @app.get("/health", tags=["admin"])
 async def health() -> dict:
