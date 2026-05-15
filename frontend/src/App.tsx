@@ -72,6 +72,7 @@ export default function App() {
   });
   const [currentTime, setCurrentTime] = useState(new Date());
   const [logs, setLogs] = useState<ReidLog[]>(MOCK_REID_LOGS);
+  const [uploadedImage, setUploadedImage] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -105,9 +106,25 @@ export default function App() {
     };
   }, []);
 
-  const handleShowHistory = (personId: string) => {
+  const handleShowHistory = (personId: string, imageSrc: string | null = null) => {
     setSelectedPersonId(personId);
+    setUploadedImage(imageSrc);
     setCurrentView('history');
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (event.target?.result) {
+          // Simulate finding a matched ID from the uploaded image
+          const fakeMatchedId = `PID-${Math.floor(1000 + Math.random() * 9000)}`;
+          handleShowHistory(fakeMatchedId, event.target.result as string);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   return (
@@ -283,16 +300,29 @@ export default function App() {
                         <div className="p-2 rounded bg-[#141416]">LAT: <span className="text-gray-300">12ms</span></div>
                       </div>
 
-                      <button className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-sm font-bold transition-all active:scale-[0.98]">
-                        RE-ID DATABASE SEARCH
-                      </button>
+                      <div className="relative w-full">
+                        <input 
+                          type="file" 
+                          accept="image/*" 
+                          id="reid-upload" 
+                          className="hidden" 
+                          onChange={handleImageUpload}
+                        />
+                        <label 
+                          htmlFor="reid-upload" 
+                          className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-sm font-bold transition-all active:scale-[0.98] cursor-pointer flex items-center justify-center space-x-2"
+                        >
+                          <Search size={16} />
+                          <span>SEARCH BY IMAGE</span>
+                        </label>
+                      </div>
                     </div>
                   </div>
                 </div>
               </aside>
             </motion.div>
           ) : (
-            <PersonHistory key="history" personId={selectedPersonId || 'PID-UNKNOWN'} onBack={() => setCurrentView('dashboard')} />
+            <PersonHistory key="history" personId={selectedPersonId || 'PID-UNKNOWN'} targetImage={uploadedImage} onBack={() => setCurrentView('dashboard')} />
           )}
         </AnimatePresence>
       </main>
@@ -300,7 +330,7 @@ export default function App() {
   );
 }
 
-const PersonHistory: React.FC<{ personId: string; onBack: () => void }> = ({ personId, onBack }) => {
+const PersonHistory: React.FC<{ personId: string; targetImage: string | null; onBack: () => void }> = ({ personId, targetImage, onBack }) => {
   const historyEvents = [
     { id: 'ev-1', time: '14:22:05', camera: 'Lobby South', confidence: 0.98, img: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&h=600&fit=crop', videoColor: 'emerald' },
     { id: 'ev-2', time: '14:15:30', camera: 'Main Entrance', confidence: 0.95, img: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&h=600&fit=crop', videoColor: 'blue' },
@@ -318,7 +348,7 @@ const PersonHistory: React.FC<{ personId: string; onBack: () => void }> = ({ per
         {/* Left: Summary Profile */}
         <div className="w-80 flex flex-col space-y-6">
           <div className="relative rounded-2xl overflow-hidden border border-blue-500/30 bg-[#0d0d0f]">
-            <img src={historyEvents[0].img} alt="Profile" className="w-full h-80 object-cover" />
+            <img src={targetImage || historyEvents[0].img} alt="Profile" className="w-full h-80 object-cover" />
             <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black to-transparent p-6">
               <div className="flex items-center justify-between">
                 <div>
