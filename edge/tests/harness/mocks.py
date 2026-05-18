@@ -302,3 +302,49 @@ class MockReIDExtractor:
                 'bbox': track.bbox,
             })
         return results
+
+
+# ==========================================================================
+# MockYOLO
+# ==========================================================================
+
+class MockBox:
+    """YOLO 박스 객체의 Mock 구현."""
+
+    def __init__(self, xyxy, conf, cls):
+        import torch
+        self.xyxy = [torch.tensor(xyxy, dtype=torch.float32)]
+        self.conf = [torch.tensor(conf, dtype=torch.float32)]
+        self.cls = [torch.tensor(cls, dtype=torch.float32)]
+
+
+class MockPredictionResult:
+    """YOLO 예측 결과 객체의 Mock 구현."""
+
+    def __init__(self, boxes: list):
+        self.boxes = boxes
+
+
+class MockYOLO:
+    """ultralytics YOLO 모델의 Mock 구현."""
+
+    def __init__(self, model_path: str = 'yolov8n.pt', *args, **kwargs):
+        self.model_path = model_path
+        self.exported = False
+
+    def export(self, format: str = 'engine', **kwargs):
+        self.exported = True
+        # 가상으로 .engine 파일이 생성된 척 동작하도록 할 수 있음
+        if self.model_path.endswith('.pt'):
+            engine_path = self.model_path.replace('.pt', '.engine')
+            with open(engine_path, 'w') as f:
+                f.write('mock engine content')
+
+    def predict(self, frame, conf: float = 0.5, classes: list = None, verbose: bool = False, **kwargs) -> list:
+        # 2개의 모형 BBox 사람 객체 생성
+        boxes = [
+            MockBox(xyxy=[50.0, 50.0, 150.0, 300.0], conf=0.9, cls=0.0),
+            MockBox(xyxy=[150.0, 50.0, 250.0, 300.0], conf=0.85, cls=0.0)
+        ]
+        return [MockPredictionResult(boxes=boxes)]
+

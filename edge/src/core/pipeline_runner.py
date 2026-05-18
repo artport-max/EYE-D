@@ -104,6 +104,7 @@ class PipelineRunner:
 
             self._reid = ReIDExtractor(
                 model_name=self.config.get('reid_model', 'osnet_x0_25'),
+                use_onnx=self.config.get('use_onnx', False),
             )
             logger.info(f"ReID Extractor initialized (model={self.config.get('reid_model', 'osnet_x0_25')})")
 
@@ -262,4 +263,162 @@ class PipelineRunner:
 
     def flush(self) -> bool:
         return True
+
+
+import queue
+import threading
+import cv2
+
+
+class ThreadedPipelineRunner:
+    """생산자-소비자 큐 패턴을 적용한 실시간 멀티스레드 파이프라인 러너.
+
+    비디오 소스(IP 카메라, 웹캠, 동영상 파일) 디코딩과 딥러닝 추론 연산을
+    각각 독립된 스레드로 분리하여 수행함으로써 임베디드 디바이스(Jetson 등)의 처리 속도를 극대화합니다.
+    실시간성을 보장하기 위해 큐가 포화 상태일 때 예전 프레임을 강제 Drop하는 최신 프레임 보존 전략을 제공합니다.
+    """
+
+    def __init__(self, source=0, config: dict = None, db_client=None, http_sender=None, queue_size: int = 15):
+        """
+        Args:
+            source: 비디오 파일 경로(str), RTSP 스트림 주소(str), 또는 웹캠 인덱스(int)
+            config: PipelineRunner와 동일한 가중치 및 탐지 임계값 설정 딕셔너리
+            db_client: VectorDBClient 인스턴스 (NullDBClient 기본값)
+            http_sender: ServerSender/ResilientServerSender 인스턴스 (NullSender 기본값)
+            queue_size: 프레임 버퍼 큐의 최대 크기 (메모리 제어용)
+        """
+        self.source = source
+        self.queue_size = queue_size
+        self.runner = PipelineRunner(config=config, db_client=db_client, http_sender=http_sender)
+
+        self.frame_queue = queue.Queue(maxsize=queue_size)
+        self.result_queue = queue.Queue()
+
+        self.running = False
+        self.cap = None
+        self.reader_thread: threading.Thread = None
+        self.worker_thread: threading.Thread = None
+
+    def start(self) -> bool:
+        """비디오 리더 및 추론 워커 스레드를 작동시킵니다."""
+        if self.running:
+            logger.warning("ThreadedPipelineRunner is already running.")
+            return False
+
+        logger.info(f"Opening video source: {self.source}...")
+        self.cap = cv2.VideoCapture(self.source)
+        if not self.cap.isOpened():
+            logger.error(f"Failed to open video source: {self.source}")
+            return False
+
+        # 내장 오케스트레이터 모델 시작
+        self.runner.start()
+
+        self.running = True
+        self.reader_thread = threading.Thread(target=self._reader_loop, name="VideoReaderThread", daemon=True)
+        self.worker_thread = threading.Thread(target=self._worker_loop, name="PipelineWorkerThread", daemon=True)
+
+        self.reader_thread.start()
+        self.worker_thread.start()
+        logger.info("ThreadedPipelineRunner successfully started with multi-threading backend.")
+        return True
+
+    def stop(self) -> bool:
+        """모든 비동기 스레드를 안전하게 중단하고 비디오 리소스를 해제합니다."""
+        if not self.running:
+            return False
+
+        self.running = False
+        logger.info("ThreadedPipelineRunner stopping threads...")
+
+        # 스레드 종료 대기
+        if self.reader_thread and self.reader_thread.is_alive():
+            self.reader_thread.join(timeout=2.0)
+        if self.worker_thread and self.worker_thread.is_alive():
+            self.worker_thread.join(timeout=2.0)
+
+        # OpenCV 및 러너 리소스 해제
+        if self.cap:
+            self.cap.release()
+            self.cap = None
+
+        self.runner.stop()
+        logger.info("ThreadedPipelineRunner successfully stopped.")
+        return True
+
+    def _reader_loop(self):
+        """카메라나 비디오 입력 스트림으로부터 쉬지 않고 프레임을 디코딩하여 큐에 적재하는 스레드 루프."""
+        camera_id = f"cam_{self.source}" if isinstance(self.source, int) else "cam_file"
+        
+        while self.running:
+            ret, frame = self.cap.read()
+            if not ret:
+                logger.info("Video source reached End-Of-File (EOF) or connection lost.")
+                # 비디오 파일 분석의 경우 루프 종료, 실시간 스트림일 경우 재연결 대기(여기선 일단 종료 처리)
+                self.running = False
+                break
+
+            # 실시간성 보장을 위한 Frame Drop 전략:
+            # 큐가 꽉 차 있다면 가장 오래된(가장 앞의) 프레임을 드랍(제거)하여 딜레이 누적 방지
+            if self.frame_queue.full():
+                try:
+                    _ = self.frame_queue.get_nowait()
+                    logger.debug("Frame queue is saturated. Squeezing out oldest frame to keep real-time sync.")
+                except queue.Empty:
+                    pass
+
+            try:
+                self.frame_queue.put((frame, camera_id, time.time()), timeout=0.1)
+            except queue.Full:
+                # 매우 드문 타임아웃 상황 처리
+                pass
+
+    def _worker_loop(self):
+        """프레임 큐에서 데이터를 가져와 순차적으로 탐지, 추적 및 특징 추출 연산을 수행하는 스레드 루프."""
+        while self.running or not self.frame_queue.empty():
+            try:
+                # 큐가 비어 있을 때 CPU를 과도하게 사용하지 않도록 짧은 타임아웃 지정
+                item = self.frame_queue.get(timeout=0.2)
+            except queue.Empty:
+                continue
+
+            frame, camera_id, enqueue_time = item
+            
+            # 큐 대기 중의 레이턴시(딜레이) 모니터링용
+            queue_delay_ms = (time.time() - enqueue_time) * 1000
+            
+            try:
+                # 실제 코어 파이프라인 동기 처리
+                report = self.runner.process_frame(frame, camera_id=camera_id)
+                if report:
+                    report['queue_delay_ms'] = queue_delay_ms
+                    # 결과 큐에 담아 외부 소비 가능하게 전달
+                    self.result_queue.put(report)
+            except Exception as e:
+                logger.error(f"Error executing core pipeline inside worker thread: {e}")
+            finally:
+                self.frame_queue.task_done()
+
+    def get_next_result(self, timeout: float = None) -> dict:
+        """최종 처리 완료된 다음 인물 Re-ID 분석 결과를 결과 큐에서 읽어옵니다.
+
+        Args:
+            timeout: 결과 획득 대기 타임아웃 (초 단위)
+
+        Returns:
+            분석 완료 결과 리포트 딕셔너리. 없을 시 None 반환.
+        """
+        try:
+            return self.result_queue.get(timeout=timeout)
+        except queue.Empty:
+            return None
+
+    def get_queue_status(self) -> dict:
+        """현재 멀티스레드 큐들의 잔여 버퍼 상황을 모니터링용으로 반환합니다."""
+        return {
+            'frame_queue_size': self.frame_queue.qsize(),
+            'result_queue_size': self.result_queue.qsize(),
+            'frames_processed': self.runner.frames_processed
+        }
+
 

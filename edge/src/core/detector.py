@@ -60,10 +60,41 @@ class PersonDetector:
         self._initialize_model()
 
     def _initialize_model(self):
-        """YOLOv8 모델을 로드하여 초기화합니다."""
+        """YOLOv8 모델을 로드하여 초기화합니다.
+        use_tensorrt=True인 경우, 자동으로 TensorRT 가속 포맷(.engine)으로 변환 및 로드합니다.
+        """
+        import os
         try:
             logger.info(f"Loading YOLO model from '{self.model_path}'...")
             self.model = YOLO(self.model_path)
+            
+            # TensorRT 가속 자동 빌드 및 로드
+            if self.use_tensorrt and self.model_path.endswith('.pt'):
+                engine_path = self.model_path.replace('.pt', '.engine')
+                if not os.path.exists(engine_path):
+                    logger.info(
+                        f"TensorRT auto-export requested. Exporting model '{self.model_path}' to '{engine_path}' "
+                        f"(this might take several minutes)..."
+                    )
+                    try:
+                        # ultralytics export API를 사용하여 TensorRT(.engine) 빌드
+                        # half=True (FP16 반정밀도)로 처리하여 Jetson 하드웨어 성능을 최대화
+                        self.model.export(format='engine', device=0, half=True)
+                        logger.info(f"Model exported to TensorRT engine successfully at '{engine_path}'")
+                    except Exception as export_error:
+                        logger.warning(
+                            f"TensorRT export failed (likely CPU-only or CUDA toolkit conflict): {export_error}. "
+                            f"Falling back to original PT model inference."
+                        )
+                
+                # 빌드된 엔진 파일이 존재하면 리로드하여 가속화
+                if os.path.exists(engine_path):
+                    self.model_path = engine_path
+                    self.model = YOLO(self.model_path)
+                    logger.info(f"Loaded hardware-accelerated TensorRT model from '{self.model_path}'")
+                else:
+                    logger.warning("TensorRT engine file not found after export. Keeping original YOLO model.")
+
             self.is_loaded = True
             logger.info("YOLO model loaded successfully.")
         except Exception as e:

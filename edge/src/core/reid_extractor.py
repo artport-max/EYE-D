@@ -29,13 +29,16 @@ class ReIDExtractor:
 
     is_loaded = False
 
-    def __init__(self, model_name: str = 'osnet_x0_25'):
+    def __init__(self, model_name: str = 'osnet_x0_25', use_onnx: bool = False):
         """
         Args:
             model_name: 사용할 OSNet 모델 이름 (기본값: 'osnet_x0_25')
+            use_onnx: ONNX Runtime 가속 사용 여부 (기본값: False)
         """
         self.model_name = model_name
+        self.use_onnx = use_onnx
         self.extractor = None
+        self.ort_session = None
         self._initialize_extractor()
 
     def _initialize_extractor(self):
@@ -54,6 +57,59 @@ class ReIDExtractor:
                 device=device,
                 verbose=False
             )
+            
+            # ONNX Runtime 가속 자동 빌드 및 로드
+            if self.use_onnx:
+                import os
+                try:
+                    import onnxruntime as ort
+                    onnx_path = f"{self.model_name}.onnx"
+                    
+                    if not os.path.exists(onnx_path):
+                        logger.info(
+                            f"ONNX auto-export requested. Exporting model '{self.model_name}' to '{onnx_path}' "
+                            f"(this might take several minutes)..."
+                        )
+                        # FeatureExtractor 내부 PyTorch 모델 추출 및 평가 모드 전환
+                        model = self.extractor.model
+                        model.eval()
+                        
+                        # OSNet 표준 입력 형상: [batch, 3, 256, 128]
+                        dummy_input = torch.randn(1, 3, 256, 128, device=device)
+                        
+                        torch.onnx.export(
+                            model,
+                            dummy_input,
+                            onnx_path,
+                            export_params=True,
+                            opset_version=11,
+                            do_constant_folding=True,
+                            input_names=['input'],
+                            output_names=['output'],
+                            dynamic_axes={'input': {0: 'batch_size'}, 'output': {0: 'batch_size'}}
+                        )
+                        logger.info(f"Model exported to ONNX successfully at '{onnx_path}'")
+                    
+                    # 빌드된 ONNX 파일 로드
+                    if os.path.exists(onnx_path):
+                        # GPU 가속을 위해 CUDAExecutionProvider 우선 지정
+                        providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+                        self.ort_session = ort.InferenceSession(onnx_path, providers=providers)
+                        logger.info(f"Loaded hardware-accelerated ONNX model from '{onnx_path}'")
+                    else:
+                        logger.warning("ONNX model file not found after export. Keeping PyTorch backend.")
+                except ImportError:
+                    logger.warning(
+                        "onnxruntime library is not installed. "
+                        "Please install 'onnxruntime' or 'onnxruntime-gpu' to leverage ONNX acceleration. "
+                        "Falling back to original PyTorch backend."
+                    )
+                except Exception as onnx_err:
+                    logger.warning(
+                        f"ONNX auto-export or load failed: {onnx_err}. "
+                        f"Falling back to original PyTorch backend."
+                    )
+
             self.is_loaded = True
             logger.info("Re-ID FeatureExtractor loaded successfully.")
         except Exception as e:
@@ -107,19 +163,27 @@ class ReIDExtractor:
                 continue
 
             try:
-                # 노트북 코드 규격 준수: (256, 128) 리사이즈 (가로 256, 세로 128)
-                # torchreid FeatureExtractor 입력에 적절하게 크기 정규화 수행
-                roi_resized = cv2.resize(roi, (256, 128))
+                # ONNX 가속 추론 경로
+                if self.use_onnx and self.ort_session is not None:
+                    # PyTorch FeatureExtractor의 전처리 파이프라인을 그대로 사용하여 데이터 정규화 일관성 확보
+                    # self.extractor.preprocess는 [C, H, W] 텐서 반환
+                    tensor = self.extractor.preprocess(roi)
+                    input_data = tensor.unsqueeze(0).cpu().numpy()  # [1, C, H, W]
+                    
+                    ort_inputs = {self.ort_session.get_inputs()[0].name: input_data}
+                    features = self.ort_session.run(None, ort_inputs)[0]  # [1, 512]
+                    vector = features[0].tolist()
+                else:
+                    # 기존 PyTorch 추론 경로
+                    # 노트북 코드 규격 준수: (256, 128) 리사이즈 (가로 256, 세로 128)
+                    # torchreid FeatureExtractor 입력에 적절하게 크기 정규화 수행
+                    roi_resized = cv2.resize(roi, (256, 128))
 
-                # 특징 추출 수행
-                # FeatureExtractor는 단일 numpy 이미지(H, W, C) 혹은 이미지 리스트를 지원합니다.
-                features = self.extractor(roi_resized)
-                
-                # 텐서로부터 피처 벡터를 numpy를 거쳐 파이썬 표준 float 리스트로 가공
-                vector = features[0].cpu().numpy().tolist()
-
-                # 혹시 L2 정규화가 필요한 경우 수동 처리 (일반적으로 Qdrant Cosine 유사도를 사용할 때 정규화 유용)
-                # OSNet FeatureExtractor는 디폴트로 normalize가 True로 동작하여 정규화 상태로 출력됩니다.
+                    # 특징 추출 수행
+                    features = self.extractor(roi_resized)
+                    
+                    # 텐서로부터 피처 벡터를 numpy를 거쳐 파이썬 표준 float 리스트로 가공
+                    vector = features[0].cpu().numpy().tolist()
 
                 results.append({
                     'track_id': track.track_id,
