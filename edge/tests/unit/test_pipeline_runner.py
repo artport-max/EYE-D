@@ -71,9 +71,10 @@ class TestPipelineRunnerInit:
         assert runner.db_client is mock_db
 
     def test_no_db_client_is_valid(self):
-        """db_client 없이도 인스턴스 생성에 성공해야 한다."""
+        """db_client 없이도 인스턴스 생성에 성공해야 하며, 기본 NullDBClient가 할당되어야 한다."""
+        from src.infrastructure.null_objects import NullDBClient
         runner = PipelineRunner()
-        assert runner.db_client is None
+        assert isinstance(runner.db_client, NullDBClient)
 
     def test_initial_state_not_running(self):
         """생성 직후 running은 False여야 한다."""

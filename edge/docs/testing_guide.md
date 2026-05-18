@@ -12,7 +12,7 @@
 conda activate cv_poc
 
 # 2. edge/ 디렉토리로 이동 (반드시 이 위치에서 실행)
-cd /home/torious/projects/tmp/EYE-D/edge
+cd <PROJECT_ROOT_DIR>/edge
 
 # 3. pytest 미설치 시
 pip install pytest
@@ -94,7 +94,8 @@ edge/
     │   ├── fixtures.py                     # 더미 데이터 생성 함수
     │   └── mocks.py                        # Mock 클래스 (DB, HTTP, Detector 등)
     └── unit/
-        └── test_pipeline_runner.py         # PipelineRunner 단위 테스트 (21개)
+        ├── test_null_objects.py            # Null Object 패턴 관련 단위 테스트 (20개)
+        └── test_pipeline_runner.py         # PipelineRunner 흐름 제어 단위 테스트 (21개)
 ```
 
 ---
@@ -103,7 +104,9 @@ edge/
 
 | 파일 | 테스트 수 | 마지막 결과 |
 |------|----------|------------|
-| `test_pipeline_runner.py` | 21개 | ✅ 21 passed (0.43s) |
+| `test_null_objects.py` | 20개 | ✅ 20 passed |
+| `test_pipeline_runner.py` | 21개 | ✅ 21 passed |
+| **합계** | **41개** | ✅ **41 passed (1.41s)** |
 
 ---
 
