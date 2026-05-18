@@ -1,0 +1,6 @@
+{
+  "name": "EYE-D Control Center",
+  "description": "Jetson Orin Nano based 3-channel intelligent surveillance system with real-time person Re-ID and crowd analytics dashboard.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: eyed_dev_pw
       POSTGRES_DB: eyed
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       # ── 옵션 A: named volume (기본) ──────────────────────────────
       # 데이터가 Docker 내부 볼륨에 저장됨. C: 가 가득 차면 옵션 B로 전환.
