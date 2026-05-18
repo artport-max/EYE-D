@@ -422,3 +422,170 @@ class ThreadedPipelineRunner:
         }
 
 
+class MultiStreamPipelineRunner:
+    """다중 RTSP/카메라 스트림을 단일 GPU 자원(모델 공유)으로 동시 처리하는 멀티스트림 파이프라인 러너.
+
+    메모리(VRAM)가 제한적인 Jetson 환경을 고려하여, 딥러닝 추론 모델(YOLO, OSNet)을
+    단 하나만 인스턴스화하고 여러 카메라 리더 스레드가 공용 프레임 큐를 통해 GPU 추론을 공유하도록 설계되었습니다.
+    """
+
+    def __init__(self, sources: dict, config: dict = None, db_client=None, http_sender=None, queue_size: int = 15):
+        """
+        Args:
+            sources: {camera_id: source_path_or_index} 형태의 딕셔너리
+            config: PipelineRunner 설정 딕셔너리
+            db_client: VectorDBClient 인스턴스
+            http_sender: ServerSender 인스턴스
+            queue_size: 공용 프레임 버퍼의 최대 크기
+        """
+        self.sources = sources
+        self.queue_size = queue_size
+        # 공유 추론 오케스트레이터 생성
+        self.runner = PipelineRunner(config=config, db_client=db_client, http_sender=http_sender)
+
+        self.shared_frame_queue = queue.Queue(maxsize=queue_size)
+        self.shared_result_queue = queue.Queue()
+
+        self.running = False
+        self.caps = {}
+        self.reader_threads = []
+        self.worker_thread = None
+
+    def start(self) -> bool:
+        """모든 카메라 소스를 열고, 리더 스레드들과 단일 공유 워커 스레드를 기동합니다."""
+        if self.running:
+            logger.warning("MultiStreamPipelineRunner is already running.")
+            return False
+
+        logger.info("Initializing multi-stream camera sources...")
+        for camera_id, src in self.sources.items():
+            cap = cv2.VideoCapture(src)
+            if not cap.isOpened():
+                logger.error(f"Failed to open video source for {camera_id}: {src}")
+                # 열린 캡처 객체 정리 후 실패 반환
+                self._release_caps()
+                return False
+            self.caps[camera_id] = cap
+
+        # 단일 공유 모델 오케스트레이터 시작
+        self.runner.start()
+
+        self.running = True
+        self.reader_threads = []
+
+        # 각 카메라 채널마다 전용 디코딩 리더 스레드 기동
+        for camera_id in self.sources.keys():
+            t = threading.Thread(
+                target=self._reader_loop,
+                args=(camera_id,),
+                name=f"ReaderThread_{camera_id}",
+                daemon=True
+            )
+            self.reader_threads.append(t)
+            t.start()
+
+        # GPU 추론 및 가속을 공유하여 도맡아 처리할 단일 워커 스레드 기동
+        self.worker_thread = threading.Thread(
+            target=self._worker_loop,
+            name="SharedPipelineWorkerThread",
+            daemon=True
+        )
+        self.worker_thread.start()
+
+        logger.info(f"MultiStreamPipelineRunner successfully started with {len(self.sources)} streams.")
+        return True
+
+    def stop(self) -> bool:
+        """모든 스레드를 안전하게 중지하고 모든 비디오 자원을 해제합니다."""
+        if not self.running:
+            return False
+
+        self.running = False
+        logger.info("MultiStreamPipelineRunner stopping all threads...")
+
+        # 스레드 조인 대기
+        for t in self.reader_threads:
+            if t.is_alive():
+                t.join(timeout=1.0)
+        if self.worker_thread and self.worker_thread.is_alive():
+            self.worker_thread.join(timeout=2.0)
+
+        self._release_caps()
+        self.runner.stop()
+        logger.info("MultiStreamPipelineRunner successfully stopped.")
+        return True
+
+    def _release_caps(self):
+        """모든 카메라 캡처 리소스를 해제합니다."""
+        for camera_id, cap in list(self.caps.items()):
+            try:
+                cap.release()
+            except Exception as e:
+                logger.warning(f"Error releasing cap for {camera_id}: {e}")
+        self.caps.clear()
+
+    def _reader_loop(self, camera_id: str):
+        """특정 카메라 스트림으로부터 프레임을 실시간 디코딩하여 공유 큐에 적재하는 루프."""
+        cap = self.caps.get(camera_id)
+        if not cap:
+            return
+
+        while self.running:
+            ret, frame = cap.read()
+            if not ret:
+                logger.warning(f"Stream lost or EOF reached for camera: {camera_id}")
+                # EOF 도달 또는 스트림 유실 시 루프 종료
+                break
+
+            # 실시간성 보장을 위해 큐 포화 시 가장 오래된 프레임 제거 (공용 큐 제어)
+            if self.shared_frame_queue.full():
+                try:
+                    _ = self.shared_frame_queue.get_nowait()
+                except queue.Empty:
+                    pass
+
+            try:
+                self.shared_frame_queue.put((frame, camera_id, time.time()), timeout=0.1)
+            except queue.Full:
+                pass
+
+    def _worker_loop(self):
+        """공유 큐에서 프레임을 가져와 단일 GPU 자원을 공유하여 순차적으로 딥러닝 추론을 수행하는 루프."""
+        while self.running or not self.shared_frame_queue.empty():
+            try:
+                item = self.shared_frame_queue.get(timeout=0.2)
+            except queue.Empty:
+                continue
+
+            frame, camera_id, enqueue_time = item
+            queue_delay_ms = (time.time() - enqueue_time) * 1000
+
+            try:
+                # 공용 딥러닝 파이프라인 실행
+                report = self.runner.process_frame(frame, camera_id=camera_id)
+                if report:
+                    report['queue_delay_ms'] = queue_delay_ms
+                    self.shared_result_queue.put(report)
+            except Exception as e:
+                logger.error(f"Error in shared GPU inference worker: {e}")
+            finally:
+                self.shared_frame_queue.task_done()
+
+    def get_next_result(self, timeout: float = None) -> dict:
+        """최종 처리 완료된 결과를 결과 큐에서 하나 가져옵니다."""
+        try:
+            return self.shared_result_queue.get(timeout=timeout)
+        except queue.Empty:
+            return None
+
+    def get_status(self) -> dict:
+        """현재 멀티스트림 파이프라인의 큐 크기 및 스트림별 상태를 모니터링하여 반환합니다."""
+        return {
+            'shared_frame_queue_size': self.shared_frame_queue.qsize(),
+            'shared_result_queue_size': self.shared_result_queue.qsize(),
+            'frames_processed': self.runner.frames_processed,
+            'active_streams': list(self.caps.keys()),
+            'running': self.running
+        }
+
+

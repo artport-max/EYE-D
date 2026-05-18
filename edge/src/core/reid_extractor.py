@@ -21,6 +21,8 @@ except ImportError:
 
 from src.core.tracker import TrackResult
 
+from src.core.preprocessor import ImagePreprocessor
+
 logger = logging.getLogger(__name__)
 
 
@@ -29,16 +31,21 @@ class ReIDExtractor:
 
     is_loaded = False
 
-    def __init__(self, model_name: str = 'osnet_x0_25', use_onnx: bool = False):
+    def __init__(self, model_name: str = 'osnet_x0_25', use_onnx: bool = False, preprocessor: ImagePreprocessor = None):
         """
         Args:
             model_name: 사용할 OSNet 모델 이름 (기본값: 'osnet_x0_25')
             use_onnx: ONNX Runtime 가속 사용 여부 (기본값: False)
+            preprocessor: 저해상도 악조건 극복을 위한 ROI 선명화 보정 엔진
         """
         self.model_name = model_name
         self.use_onnx = use_onnx
         self.extractor = None
         self.ort_session = None
+        
+        # 외부 주입이 없을 경우 기본 악조건 보정기 활성화
+        self.preprocessor = preprocessor if preprocessor is not None else ImagePreprocessor()
+        
         self._initialize_extractor()
 
     def _initialize_extractor(self):
@@ -161,6 +168,10 @@ class ReIDExtractor:
             roi = frame[y1:y2, x1:x2]
             if roi.size == 0:
                 continue
+
+            # 실환경 저해상도 악조건 대응: 인물 크롭 이미지 적응형 선명도 강화 필터 적용
+            if self.preprocessor is not None:
+                roi = self.preprocessor.enhance_roi(roi)
 
             try:
                 # ONNX 가속 추론 경로
