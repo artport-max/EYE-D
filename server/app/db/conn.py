@@ -9,9 +9,10 @@ async def init_pool() -> asyncpg.Pool:
     """앱 시작 시 1번 호출. 연결 풀을 만들어 둔다."""
     global _pool
     if _pool is None:
-        dsn = os.getenv("DATABASE_URL")
-        if not dsn:
-            raise ValueError("DATABASE_URL environment variable is not set")
+        dsn = os.getenv(
+            "DATABASE_URL",
+            "postgresql://eyed:eyed_dev_pw@localhost:5432/eyed",
+        )
         _pool = await asyncpg.create_pool(dsn, min_size=1, max_size=5)
     assert _pool is not None     
     return _pool

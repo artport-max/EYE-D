@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 class DetectionIn(BaseModel):
     """엣지(Jetson)에서 보내는 탐지 이벤트 페이로드."""
 
-    # --- kote 본 용도 (필수) ---
+    # --- EYE-D 본 용도 (필수) ---
     camera_id: str = Field(..., examples=["CAM_01"])
     tracklet_id: str = Field(..., description="엣지 내 임시 ID")
     embedding_identity: list[float] = Field(
@@ -16,7 +16,7 @@ class DetectionIn(BaseModel):
     bbox: list[float] = Field(..., description="[x1, y1, x2, y2]")
     event_type: str = Field(default="detection", examples=["detection", "intrusion"])
 
-    # --- arttrace 확장 슬롯 (옵션, kote 기간엔 null 허용) ---
+    # --- arttrace 확장 슬롯 (옵션, 현 단계엔 null 허용) ---
     pose_keypoints: Optional[list[list[float]]] = None
     action_label: Optional[str] = None
     dwell_seconds: Optional[float] = None

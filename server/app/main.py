@@ -1,4 +1,4 @@
-"""kote backend FastAPI 진입점.
+"""EYE-D backend FastAPI 진입점.
 앱 설정 + 라우터 등록 + 공통 엔드포인트(/health, /admin/*)만 담당."""
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -24,11 +24,30 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="kote backend",
+    title="EYE-D Backend(PS Center)",
     description="엣지 게이트웨이 → 백엔드 수신/관리 API",
     version="0.1.0",
     lifespan=lifespan,
 )
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 개발 단계 — 운영 시 도메인 제한 권장
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 개발 단계 — 운영 시 도메인 제한 권장
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 from fastapi.middleware.cors import CORSMiddleware
 
