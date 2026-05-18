@@ -42,6 +42,7 @@ class ReIDExtractor:
         self.use_onnx = use_onnx
         self.extractor = None
         self.ort_session = None
+        self.vector_dim = 512  # OSNet 피처 임베딩 기본 차원
         
         # 외부 주입이 없을 경우 기본 악조건 보정기 활성화
         self.preprocessor = preprocessor if preprocessor is not None else ImagePreprocessor()

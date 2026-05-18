@@ -13,7 +13,13 @@ mocks.py
 import numpy as np
 from typing import List, Optional
 
-from tests.harness.fixtures import dummy_bgr_frame, dummy_reid_vector
+try:
+    from tests.harness.fixtures import dummy_bgr_frame, dummy_reid_vector
+except ImportError:
+    try:
+        from .fixtures import dummy_bgr_frame, dummy_reid_vector
+    except ImportError:
+        from harness.fixtures import dummy_bgr_frame, dummy_reid_vector
 from src.core.tracker import TrackResult
 
 
