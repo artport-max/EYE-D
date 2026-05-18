@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>PS Center 모니터링 대시보드</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: 'Pretendard', 'Noto Sans KR', system-ui, sans-serif; }
+  .mono { font-family: 'JetBrains Mono', 'IBM Plex Mono', 'Consolas', monospace; }
+  .panel { background: #1a1f2e; border: 1px solid #2a2f3e; }
+  .accent { color: #00D9FF; }
+  .danger { color: #E74C3C; }
+  .badge-intrusion { background: rgba(231, 76, 60, 0.2); color: #ff8a7a; border: 1px solid rgba(231, 76, 60, 0.5); }
+  .badge-detection { background: rgba(100, 116, 139, 0.2); color: #94a3b8; }
+  .badge-vip { background: rgba(0, 217, 255, 0.15); color: #00D9FF; border: 1px solid rgba(0, 217, 255, 0.4); }
+  .badge-warn { background: rgba(231, 76, 60, 0.15); color: #ff8a7a; border: 1px solid rgba(231, 76, 60, 0.4); }
+  .pulse-new {
+    animation: pulse 3s ease-out;
+  }
+  @keyframes pulse {
+    0%, 30% { background: rgba(0, 217, 255, 0.25); }
+    100% { background: transparent; }
+  }
+  .pulse-intrusion {
+    animation: pulseIntrusion 3s ease-out;
+  }
+  @keyframes pulseIntrusion {
+    0%, 30% { background: rgba(231, 76, 60, 0.3); }
+    100% { background: transparent; }
+  }
+  @keyframes screenFlash {
+    0%, 100% { background: #0F1419; }
+    50% { background: #3a1a1a; }
+  }
+  .screen-flash { animation: screenFlash 0.5s ease-out; }
+  /* 스크롤바 어둡게 */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #475569; }
+</style>
+</head>
+<body class="bg-[#0F1419] text-slate-200 min-h-screen">
+
+<!-- 상단 헤더 -->
+<header class="flex justify-between items-center px-6 py-3 border-b border-slate-700">
+  <div class="flex items-center gap-4">
+    <h1 class="text-lg font-semibold">PS Center 모니터링 대시보드</h1>
+    <span id="liveBadge" class="text-xs px-2 py-0.5 rounded mono">
+      <span class="text-yellow-400">●</span> <span id="wsStatus">연결 중...</span>
+    </span>
+  </div>
+  <div class="text-sm mono text-slate-300" id="currentTime"></div>
+</header>
+
+<!-- 메인 그리드: 2x2 -->
+<main class="grid gap-3 p-3" style="grid-template-columns: 2fr 3fr; grid-template-rows: 1fr 1fr; height: calc(100vh - 110px);">
+
+  <!-- 좌상단: 카메라 영상 placeholder -->
+  <section class="panel rounded-lg p-4 flex flex-col">
+    <div class="flex justify-between items-center mb-3">
+      <h2 class="text-sm"><span class="accent mono">CAM_01</span> <span class="text-slate-500">— PS Center main hall</span></h2>
+      <div class="text-xs mono text-slate-400">● REC · <span id="fps">28.4 fps</span></div>
+    </div>
+    <div class="flex-1 bg-slate-900/60 rounded flex items-center justify-center text-slate-600 relative overflow-hidden">
+      <!-- 가상 공간 배경 (시안과 비슷한 분위기) -->
+      <svg class="absolute inset-0 w-full h-full opacity-30" viewBox="0 0 400 250" preserveAspectRatio="xMidYMid slice">
+        <rect x="20" y="40" width="80" height="180" fill="none" stroke="#475569" stroke-width="1"/>
+        <rect x="160" y="40" width="80" height="180" fill="none" stroke="#475569" stroke-width="1"/>
+        <rect x="300" y="40" width="80" height="180" fill="none" stroke="#475569" stroke-width="1"/>
+        <circle cx="60" cy="130" r="14" fill="none" stroke="#475569"/>
+        <rect x="187" cy="116" y="103" width="26" height="35" fill="none" stroke="#475569"/>
+        <polygon points="340,110 327,150 353,150" fill="none" stroke="#475569"/>
+      </svg>
+      <div class="relative z-10 text-center">
+        <div class="text-4xl mb-2">📹</div>
+        <div class="text-sm text-slate-500">영상 스트림 대기 중</div>
+        <div class="text-xs mt-1 text-slate-600">팀장님 엣지 통합 시 자동 연결</div>
+      </div>
+    </div>
+    <div class="text-[10px] mono text-slate-500 mt-2 flex justify-between">
+      <span>H.265 · 720p · 4.2 Mbps (placeholder)</span>
+      <span id="cameraTime">12:00:00.000</span>
+    </div>
+  </section>
+
+  <!-- 우상단: 통계 + 이벤트 타임라인 -->
+  <section class="panel rounded-lg p-4 flex flex-col overflow-hidden">
+    <!-- 카운터 -->
+    <div class="grid grid-cols-3 gap-4 pb-3 border-b border-slate-700 mb-3">
+      <div>
+        <div class="text-[11px] text-slate-400 mb-0.5">오늘 탐지</div>
+        <div class="font-bold mono"><span id="todayCount" class="text-2xl">--</span><span class="text-xs text-slate-500 ml-1">건</span></div>
+      </div>
+      <div>
+        <div class="text-[11px] text-slate-400 mb-0.5">오늘 침입</div>
+        <div class="font-bold mono danger"><span id="todayIntrusions" class="text-2xl">--</span><span class="text-xs text-slate-500 ml-1">건</span></div>
+      </div>
+      <div>
+        <div class="text-[11px] text-slate-400 mb-0.5">현재 추적</div>
+        <div class="font-bold mono accent"><span id="activeNow" class="text-2xl">--</span><span class="text-xs text-slate-500 ml-1">명</span></div>
+      </div>
+    </div>
+    <!-- 이벤트 리스트 헤더 -->
+    <div class="text-xs text-slate-400 mb-2 flex justify-between items-center">
+      <span>실시간 이벤트</span>
+      <span class="mono text-[10px] text-slate-500">최신순 · 최대 30건</span>
+    </div>
+    <div class="text-[10px] mono text-slate-500 grid grid-cols-[5rem_3rem_4.5rem_1fr_3rem] gap-2 px-2 mb-1">
+      <span>시각</span><span>카메라</span><span>인물 ID</span><span>이벤트</span><span class="text-right">유사도</span>
+    </div>
+    <div id="eventList" class="flex-1 overflow-y-auto space-y-0.5">
+      <div class="text-slate-600 text-xs text-center py-4">이벤트 로딩 중...</div>
+    </div>
+  </section>
+
+  <!-- 좌하단: 인물 카드 그리드 -->
+  <section class="panel rounded-lg p-4 flex flex-col overflow-hidden">
+    <div class="flex justify-between items-center mb-3">
+      <h2 class="text-sm">등록 인물 <span class="text-xs text-slate-400 mono ml-1" id="personsCount">(--)</span></h2>
+      <div class="text-[10px] text-slate-500">카드 클릭 → 우측 동선 표시</div>
+    </div>
+    <div id="personsGrid" class="grid grid-cols-3 gap-2 overflow-y-auto flex-1 content-start">
+      <div class="col-span-3 text-slate-600 text-xs text-center py-4">인물 로딩 중...</div>
+    </div>
+  </section>
+
+  <!-- 우하단: 평면도 -->
+  <section class="panel rounded-lg p-4 flex flex-col">
+    <div class="flex justify-between items-center mb-3">
+      <h2 class="text-sm">공간 도식 · <span class="accent mono" id="trackPersonLabel">인물 선택</span></h2>
+      <div class="text-xs mono text-slate-400">동선 <span id="trackCount">0</span>점</div>
+    </div>
+    <div class="flex-1 bg-slate-900/40 rounded overflow-hidden">
+      <svg id="floorMap" class="w-full h-full" viewBox="0 0 800 500" preserveAspectRatio="xMidYMid meet">
+        <!-- 공간 배경 -->
+        <rect x="50" y="50" width="700" height="400" fill="#0a0d14" stroke="#334155" stroke-width="1"/>
+        <text x="60" y="40" fill="#64748b" font-size="11" class="mono">PS Center main hall · 1F</text>
+        <!-- 입구 표시 -->
+        <line x1="50" y1="380" x2="120" y2="380" stroke="#00D9FF" stroke-width="3" stroke-dasharray="5,3"/>
+        <text x="55" y="400" fill="#00D9FF" font-size="10" class="mono">IN</text>
+        <!-- 제한 구역 -->
+        <rect x="500" y="80" width="220" height="120" fill="rgba(231,76,60,0.05)" stroke="rgba(231,76,60,0.4)" stroke-width="1" stroke-dasharray="4,2"/>
+        <text x="510" y="100" fill="#E74C3C" font-size="11" class="mono">제한 구역</text>
+        <!-- 카메라 위치 -->
+        <circle cx="150" cy="150" r="6" fill="#00D9FF"/>
+        <circle cx="150" cy="150" r="14" fill="none" stroke="#00D9FF" stroke-opacity="0.3"/>
+        <text x="165" y="155" fill="#00D9FF" font-size="11" class="mono">CAM_01</text>
+        <!-- 척도 표시 -->
+        <line x1="630" y1="430" x2="700" y2="430" stroke="#64748b" stroke-width="1"/>
+        <text x="630" y="445" fill="#64748b" font-size="9" class="mono">5 m · 척도 1:200</text>
+        <!-- 동선이 여기에 그려짐 -->
+        <g id="trajectory"></g>
+      </svg>
+    </div>
+  </section>
+
+</main>
+
+<!-- 풋터: 시스템 상태 -->
+<footer class="fixed bottom-0 left-0 right-0 px-4 py-1.5 bg-[#0a0d14] border-t border-slate-800 flex justify-between text-xs mono text-slate-400">
+  <div class="flex gap-4">
+    <span>EYE-D</span>
+    <span>API: <span id="apiStatus" class="text-green-400">●</span> <span id="apiLatency">--</span>ms</span>
+    <span>DB: <span id="dbStatus" class="text-green-400">●</span> pgvector</span>
+    <span>토큰: <span id="tokenUsage">-- / --</span></span>
+  </div>
+  <div class="flex gap-4">
+    <span>마지막 업데이트: <span id="lastUpdated">--</span></span>
+    <span>v0.1.0-phase1</span>
+  </div>
+</footer>
+
+<script>
+// ============================================================
+// 설정
+// ============================================================
+const API = "http://127.0.0.1:8000";
+const WS_URL = "ws://127.0.0.1:8000/api/v1/security/ws/alerts";
+const REFRESH_INTERVAL_MS = 5000;  // 통계/토큰 5초마다 새로고침
+
+// ============================================================
+// 헬퍼
+// ============================================================
+function formatPersonId(globalId) {
+  if (globalId == null) return "G-?????";
+  return `G-${String(globalId).padStart(5, "0")}`;
+}
+
+function formatTime(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (isNaN(d.getTime())) return '--:--:--';
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  const ms = String(d.getMilliseconds()).padStart(3, '0');
+  return `${hh}:${mm}:${ss}.${ms}`;
+}
+
+// ============================================================
+// 초기 데이터 로드
+// ============================================================
+async function loadStats() {
+  try {
+    const r = await fetch(`${API}/api/v1/security/stats/today`);
+    if (!r.ok) throw new Error(r.status);
+    const data = await r.json();
+    document.getElementById('todayCount').textContent = data.today_count ?? 0;
+    document.getElementById('todayIntrusions').textContent = data.today_intrusions ?? 0;
+    document.getElementById('activeNow').textContent = data.active_now ?? 0;
+  } catch (e) {
+    console.error('stats load failed', e);
+  }
+}
+
+async function loadPersons() {
+  try {
+    const r = await fetch(`${API}/api/v1/security/persons?limit=24`);
+    if (!r.ok) throw new Error(r.status);
+    const persons = await r.json();
+    document.getElementById('personsCount').textContent = `(전체 ${persons.length}명)`;
+    const grid = document.getElementById('personsGrid');
+    grid.innerHTML = '';
+    if (persons.length === 0) {
+      grid.innerHTML = '<div class="col-span-3 text-slate-600 text-xs text-center py-4">등록된 인물이 없습니다</div>';
+      return;
+    }
+    persons.forEach(p => {
+      const card = document.createElement('div');
+      card.className = 'panel rounded p-2 cursor-pointer hover:border-cyan-500 transition-colors';
+      card.dataset.globalId = p.global_id;
+      const badges = [];
+      if (p.has_intrusion) badges.push('<span class="badge-warn text-[9px] px-1 rounded">위험</span>');
+      card.innerHTML = `
+        <div class="mono text-sm font-semibold accent">${formatPersonId(p.global_id)}</div>
+        <div class="text-[10px] text-slate-400 mt-0.5">최근 ${formatTime(p.last_seen_at)}</div>
+        <div class="text-[10px] text-slate-400">탐지 ${p.detection_count}회</div>
+        ${badges.length ? `<div class="mt-1 flex gap-1">${badges.join('')}</div>` : ''}
+      `;
+      card.onclick = () => {
+        document.querySelectorAll('#personsGrid > div').forEach(el => el.classList.remove('border-cyan-500', 'bg-cyan-900/10'));
+        card.classList.add('border-cyan-500', 'bg-cyan-900/10');
+        loadTrack(p.global_id);
+      };
+      grid.appendChild(card);
+    });
+  } catch (e) {
+    console.error('persons load failed', e);
+  }
+}
+
+async function loadRecent() {
+  try {
+    const r = await fetch(`${API}/api/v1/security/detections/recent?limit=20`);
+    if (!r.ok) throw new Error(r.status);
+    const events = await r.json();
+    const list = document.getElementById('eventList');
+    list.innerHTML = '';
+    if (events.length === 0) {
+      list.innerHTML = '<div class="text-slate-600 text-xs text-center py-4">최근 이벤트가 없습니다</div>';
+      return;
+    }
+    // 시간순 정렬 (최신이 위)
+    events.reverse().forEach(ev => prependEvent(ev, false));
+  } catch (e) {
+    console.error('recent load failed', e);
+  }
+}
+
+async function loadTrack(globalId) {
+  try {
+    const r = await fetch(`${API}/api/v1/security/persons/${globalId}/track`);
+    if (!r.ok) {
+      document.getElementById('trackPersonLabel').textContent = formatPersonId(globalId) + ' (이력 없음)';
+      document.getElementById('trackCount').textContent = '0';
+      document.getElementById('trajectory').innerHTML = '';
+      return;
+    }
+    const points = await r.json();
+    document.getElementById('trackPersonLabel').textContent = formatPersonId(globalId);
+    document.getElementById('trackCount').textContent = points.length;
+    drawTrajectory(points);
+  } catch (e) {
+    console.error('track load failed', e);
+  }
+}
+
+function drawTrajectory(points) {
+  const g = document.getElementById('trajectory');
+  g.innerHTML = '';
+  if (!points || points.length === 0) return;
+  // bbox 의 중심점을 평면도 좌표로 임시 매핑
+  // 실제 운영에선 카메라 위치 + 호모그래피로 변환해야 함
+  const coords = points.map((p, i) => {
+    let bbox = p.bbox;
+    if (typeof bbox === 'string') {
+      try { bbox = JSON.parse(bbox); } catch (e) { bbox = [0,0,0,0]; }
+    }
+    if (!Array.isArray(bbox)) bbox = [0,0,0,0];
+    // 단순 매핑: 카메라 주변 + bbox 좌표 비례
+    const cx = 150 + (i * 50) % 500 + (bbox[0] / 10);
+    const cy = 150 + Math.floor(i / 4) * 60 + (bbox[1] / 20);
+    return { x: Math.min(720, cx), y: Math.min(420, cy), time: p.detected_at, intrusion: p.is_intrusion };
+  });
+  // 선
+  if (coords.length > 1) {
+    const path = coords.map(c => `${c.x},${c.y}`).join(' ');
+    g.innerHTML += `<polyline points="${path}" fill="none" stroke="#00D9FF" stroke-width="1.5" stroke-dasharray="3,3" opacity="0.6"/>`;
+  }
+  // 점
+  coords.forEach((c, i) => {
+    const isLast = i === coords.length - 1;
+    const color = c.intrusion ? '#E74C3C' : (isLast ? '#00D9FF' : '#64748b');
+    const r = isLast ? 6 : 4;
+    g.innerHTML += `<circle cx="${c.x}" cy="${c.y}" r="${r}" fill="${color}"/>`;
+    if (isLast) {
+      g.innerHTML += `<circle cx="${c.x}" cy="${c.y}" r="${r + 5}" fill="none" stroke="${color}" stroke-opacity="0.5"/>`;
+    }
+  });
+}
+
+async function loadHealth() {
+  const t0 = performance.now();
+  try {
+    const r = await fetch(`${API}/health`);
+    const elapsed = Math.round(performance.now() - t0);
+    document.getElementById('apiLatency').textContent = elapsed;
+    if (!r.ok) throw new Error(r.status);
+    const data = await r.json();
+    document.getElementById('apiStatus').textContent = '●';
+    document.getElementById('apiStatus').className = 'text-green-400';
+    document.getElementById('dbStatus').textContent = data.db === 1 ? '●' : '✕';
+    document.getElementById('dbStatus').className = data.db === 1 ? 'text-green-400' : 'text-red-400';
+  } catch (e) {
+    document.getElementById('apiStatus').textContent = '✕';
+    document.getElementById('apiStatus').className = 'text-red-400';
+    document.getElementById('dbStatus').textContent = '?';
+  }
+}
+
+async function loadTokens() {
+  try {
+    const r = await fetch(`${API}/admin/tokens`);
+    if (!r.ok) return;
+    const data = await r.json();
+    const used = data.daily_used ?? 0;
+    const budget = data.daily_budget ?? 0;
+    document.getElementById('tokenUsage').textContent = `${used.toLocaleString()} / ${budget.toLocaleString()}`;
+  } catch (e) {}
+}
+
+// ============================================================
+// 이벤트 타임라인 추가
+// ============================================================
+function prependEvent(ev, isNew = true) {
+  const list = document.getElementById('eventList');
+  // 첫 이벤트가 들어오면 placeholder 제거
+  if (list.children.length === 1 && list.firstChild.textContent.includes('로딩')) {
+    list.innerHTML = '';
+  }
+  const eventType = ev.event_type || (ev.is_intrusion ? 'intrusion' : 'detection');
+  const isIntrusion = eventType === 'intrusion';
+  const row = document.createElement('div');
+  row.className = `grid grid-cols-[5rem_3rem_4.5rem_1fr_3rem] gap-2 items-center text-xs py-1 px-2 rounded ${isNew ? (isIntrusion ? 'pulse-intrusion' : 'pulse-new') : ''}`;
+  const similarity = ev.similarity != null ? ev.similarity.toFixed(2) : '--';
+  row.innerHTML = `
+    <span class="mono text-slate-400">${formatTime(ev.detected_at || ev.timestamp || new Date())}</span>
+    <span class="mono text-slate-500">${ev.camera_id || 'CAM_01'}</span>
+    <span class="mono ${isIntrusion ? 'danger' : 'accent'}">${formatPersonId(ev.global_id)}</span>
+    <span><span class="${isIntrusion ? 'badge-intrusion' : 'badge-detection'} px-1.5 py-0.5 rounded text-[10px] mono">${eventType}</span></span>
+    <span class="mono text-slate-400 text-right">${similarity}</span>
+  `;
+  list.insertBefore(row, list.firstChild);
+  while (list.children.length > 30) list.removeChild(list.lastChild);
+}
+
+// ============================================================
+// WebSocket
+// ============================================================
+let ws;
+function connectWS() {
+  ws = new WebSocket(WS_URL);
+  ws.onopen = () => {
+    const el = document.getElementById('liveBadge');
+    el.innerHTML = '<span class="text-green-400">●</span> <span id="wsStatus">live</span>';
+  };
+  ws.onmessage = (event) => {
+    const alert = JSON.parse(event.data);
+    prependEvent({
+      detected_at: new Date(),
+      camera_id: alert.camera_id,
+      global_id: alert.global_id,
+      event_type: alert.type,
+      similarity: null,
+    });
+    if (alert.type === 'intrusion') {
+      document.body.classList.add('screen-flash');
+      setTimeout(() => document.body.classList.remove('screen-flash'), 500);
+      // 통계 즉시 새로고침
+      loadStats();
+      loadPersons();
+    }
+    document.getElementById('lastUpdated').textContent = formatTime(new Date());
+  };
+  ws.onclose = () => {
+    const el = document.getElementById('liveBadge');
+    el.innerHTML = '<span class="text-yellow-400">●</span> <span id="wsStatus">재연결 중...</span>';
+    setTimeout(connectWS, 5000);
+  };
+  ws.onerror = (e) => console.error('WS error', e);
+}
+
+// ============================================================
+// 시계
+// ============================================================
+function updateClock() {
+  document.getElementById('currentTime').textContent = formatTime(new Date());
+  document.getElementById('cameraTime').textContent = formatTime(new Date());
+}
+setInterval(updateClock, 100);
+updateClock();
+
+// ============================================================
+// 초기화 + 주기적 갱신
+// ============================================================
+async function init() {
+  await loadHealth();
+  await Promise.all([loadStats(), loadPersons(), loadRecent(), loadTokens()]);
+  document.getElementById('lastUpdated').textContent = formatTime(new Date());
+  connectWS();
+}
+init();
+
+setInterval(() => {
+  loadStats();
+  loadTokens();
+  loadHealth();
+  document.getElementById('lastUpdated').textContent = formatTime(new Date());
+}, REFRESH_INTERVAL_MS);
+
+</script>
+</body>
+</html>

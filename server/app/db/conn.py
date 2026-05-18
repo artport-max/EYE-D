@@ -11,7 +11,7 @@ async def init_pool() -> asyncpg.Pool:
     if _pool is None:
         dsn = os.getenv(
             "DATABASE_URL",
-            "postgresql://kote:kote_dev_pw@localhost:5432/kote",
+            "postgresql://eyed:eyed_dev_pw@localhost:5432/eyed",
         )
         _pool = await asyncpg.create_pool(dsn, min_size=1, max_size=5)
     assert _pool is not None     

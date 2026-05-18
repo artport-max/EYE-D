@@ -58,5 +58,5 @@ CREATE TABLE IF NOT EXISTS art_events (
 
 -- 시연용 카메라 1개 미리 등록
 INSERT INTO cameras (camera_id, location)
-VALUES ('CAM_01', 'kote main hall')
+VALUES ('CAM_01', 'PS Center main hall')
 ON CONFLICT (camera_id) DO NOTHING;

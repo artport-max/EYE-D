@@ -1,4 +1,4 @@
-"""kote 본 용도 — 보안/감시 라우터.
+"""EYE-D 보안 라우터 — PS Center 본 도메인.
 탐지 수신, 인물 동선 조회, 실시간 알림 WebSocket."""
 import json
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -120,3 +120,58 @@ async def ws_alerts(ws: WebSocket):
     except WebSocketDisconnect:
         if ws in _alert_clients:
             _alert_clients.remove(ws)
+
+
+@router.get("/stats/today")
+async def get_today_stats():
+    """오늘 탐지/침입 건수 + 현재 추적 인원."""
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            SELECT
+                COUNT(*) FILTER (WHERE detected_at >= CURRENT_DATE) AS today_count,
+                COUNT(*) FILTER (WHERE detected_at >= CURRENT_DATE
+                                 AND is_intrusion = TRUE) AS today_intrusions,
+                COUNT(DISTINCT global_id) FILTER (
+                    WHERE detected_at > NOW() - INTERVAL '5 minutes'
+                ) AS active_now
+            FROM detections
+        """)
+    return dict(row)
+
+
+@router.get("/detections/recent")
+async def get_recent_detections(limit: int = Query(default=50, le=200)):
+    """이벤트 타임라인용 최근 detection 목록."""
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT detection_id, camera_id, global_id, detected_at,
+                   is_intrusion, tracklet_id
+            FROM detections
+            ORDER BY detected_at DESC
+            LIMIT $1
+        """, limit)
+    return [dict(r) for r in rows]            
+
+
+@router.get("/persons")
+async def list_persons(limit: int = Query(default=100, le=500)):
+    """등록 인물 카드 그리드용 — 인물별 요약."""
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT
+                p.global_id,
+                p.first_seen_at,
+                p.last_seen_at,
+                COUNT(d.detection_id) AS detection_count,
+                BOOL_OR(d.is_intrusion) AS has_intrusion,
+                MAX(d.camera_id) AS last_camera
+            FROM persons p
+            LEFT JOIN detections d ON d.global_id = p.global_id
+            GROUP BY p.global_id
+            ORDER BY p.last_seen_at DESC
+            LIMIT $1
+        """, limit)
+    return [dict(r) for r in rows]

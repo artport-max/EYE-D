@@ -1,4 +1,4 @@
-# kote 백엔드 학습 프로젝트
+# EYE-D 백엔드 학습 프로젝트
 
 이 폴더는 본인이 맡은 **데이터 파이프라인/백엔드 부분**을 처음부터 단계적으로 만들어가는 작업 공간입니다.
 
@@ -9,7 +9,7 @@
 ## 폴더 구조 (가이드를 따라가며 채워질 모습)
 
 ```
-backend_kote/
+backend_EYE-D/PS Center/
 ├── README.md              # 이 파일
 ├── requirements.txt       # 파이썬 패키지 목록 (제공됨)
 ├── docker-compose.yml     # PostgreSQL + pgvector (제공됨)
@@ -24,7 +24,7 @@ backend_kote/
 │   │   ├── conn.py        # DB 연결 풀
 │   │   └── schema.sql     # 테이블 정의
 │   ├── routers/
-│   │   ├── security.py    # kote 본 용도 (/api/v1/security/*)
+│   │   ├── security.py    # EYE-D 본 용도 (/api/v1/security/*)
 │   │   └── art.py         # arttrace 확장 슬롯 (빈 라우터)
 │   └── services/
 │       ├── matcher.py     # 코사인 유사도 매칭
