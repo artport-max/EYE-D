@@ -1,42 +1,54 @@
-# EYE-D 백엔드 학습 프로젝트
+# EYE-D 백엔드 (PS Center 코어)
 
-이 폴더는 본인이 맡은 **데이터 파이프라인/백엔드 부분**을 처음부터 단계적으로 만들어가는 작업 공간입니다.
+이 폴더는 **데이터 파이프라인/백엔드 부분** 작업 공간입니다.
+이전 이름인 `../../backend_kote/` 의 역할을 모두 이쪽으로 옮겼습니다.
 
-## 시작 방법
+- 시스템 코드네임: **EYE-D**
+- 운영자 제품명: **PS Center**
+- DB: `eyed/eyed_dev_pw/eyed` (2026-05-19 통일)
 
-상위 폴더의 [`백엔드_학습_가이드.md`](../백엔드_학습_가이드.md) 파일을 처음부터 차례대로 따라가세요. 각 단계 끝에 "체크포인트"가 있어 동작을 확인하고 다음 단계로 진행할 수 있습니다.
-
-## 폴더 구조 (가이드를 따라가며 채워질 모습)
+## 폴더 구조
 
 ```
-backend_EYE-D/PS Center/
+EYE-D/server/
 ├── README.md              # 이 파일
-├── requirements.txt       # 파이썬 패키지 목록 (제공됨)
-├── docker-compose.yml     # PostgreSQL + pgvector (제공됨)
-├── .env.example           # 환경변수 템플릿 (제공됨)
-├── .gitignore             # 깃 제외 목록 (제공됨)
+├── requirements.txt
+├── docker-compose.yml     # PostgreSQL + pgvector
+├── .env.example
 ├── app/
-│   ├── __init__.py
 │   ├── main.py            # FastAPI 진입점
-│   ├── schemas/
-│   │   └── detection.py   # Pydantic 스키마
+│   ├── schemas/detection.py
 │   ├── db/
-│   │   ├── conn.py        # DB 연결 풀
-│   │   └── schema.sql     # 테이블 정의
+│   │   ├── conn.py
+│   │   ├── schema.sql     # 초기 테이블 정의 (cameras, persons, detections, art_events)
+│   │   └── migrations/    # 증분 ALTER (예: 2026-05-19_retail.sql)
 │   ├── routers/
-│   │   ├── security.py    # EYE-D 본 용도 (/api/v1/security/*)
-│   │   └── art.py         # arttrace 확장 슬롯 (빈 라우터)
+│   │   ├── security.py    # /api/v1/security/* (탐지·동선·알림)
+│   │   ├── retail.py      # /api/v1/retail/*   (VIP/단골·체류분석) ← 2026-05-19 추가
+│   │   └── art.py         # /api/v1/art/*      (arttrace, Phase B)
 │   └── services/
-│       ├── matcher.py     # 코사인 유사도 매칭
-│       └── token_governor.py  # AI 토큰 관리 미들웨어
+│       ├── matcher.py             # Re-ID 코사인 매칭
+│       ├── customer_classifier.py # VIP/단골 자동 분류  ← 2026-05-19 추가
+│       ├── dwell_analyzer.py      # 체류·동선 특징 분석 ← 2026-05-19 추가
+│       └── token_governor.py
+├── docs/
+│   └── feature_analysis.md  # 고객 분류·체류 분석 설계 노트 ← 2026-05-19 추가
 └── tools/
-    └── mock_sender.py     # 엣지를 흉내내는 송신 스크립트
+    └── mock_sender.py
 ```
 
 ## 환경 변수
 
-`.env.example`을 복사해 `.env`로 만들고 본인 환경에 맞게 수정합니다.
-
 ```
 copy .env.example .env
+```
+
+## 시작 방법 (개발자 환경)
+
+```
+docker compose up -d                            # Postgres 기동 (schema.sql 자동 초기화)
+python -m venv .venv && .venv\Scripts\activate
+pip install -r requirements.txt
+psql -h localhost -U eyed -d eyed -f app/db/migrations/2026-05-19_retail.sql
+uvicorn app.main:app --reload
 ```
