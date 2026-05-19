@@ -41,5 +41,3 @@ async def find_or_create_global_id(
         "INSERT INTO persons DEFAULT VALUES RETURNING global_id"
     )
     return int(new_id), None, False
-    if row and row["distance"] is not None and row["distance"] < distance_threshold:
-        return int(row["global_id"]), 1.0 - float(row["distance"]), True  # type: ignore[arg-type]
