@@ -49,6 +49,6 @@ copy .env.example .env
 docker compose up -d                            # Postgres 기동 (schema.sql 자동 초기화)
 python -m venv .venv && .venv\Scripts\activate
 pip install -r requirements.txt
-psql -h localhost -U eyed -d eyed -f app/db/migrations/2026-05-19_retail.sql
+Get-Content .\app\db\migrations\2026-05-19_retail.sql | docker exec -i eyed-postgres psql -U eyed -d eyed
 uvicorn app.main:app --reload
 ```

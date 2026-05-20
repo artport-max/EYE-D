@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
+from pathlib import Path
 
 from app.db.conn import init_pool, close_pool, get_pool
 from app.services.token_governor import governor
@@ -16,7 +17,7 @@ from app.routers import security as security_router
 from app.routers import retail as retail_router
 from app.routers import art as art_router
 
-load_dotenv()  # .env 파일을 환경변수로 로드
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 
 @asynccontextmanager
