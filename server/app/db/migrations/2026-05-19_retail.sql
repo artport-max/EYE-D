@@ -3,8 +3,10 @@
 -- ------------------------------------------------------------
 -- 적용 대상: schema.sql 로 초기화된 EYE-D DB
 -- 안전성  : 기존 컬럼/테이블을 깨지 않음 (모두 IF NOT EXISTS / ADD COLUMN)
--- 적용 방법:
---   psql -h localhost -U eyed -d eyed -f 2026-05-19_retail.sql
+-- 적용 방법 (Windows PowerShell, 호스트에 psql 없어도 동작):
+--   Get-Content .\app\db\migrations\2026-05-19_retail.sql | docker exec -i eyed-postgres psql -U eyed -d eyed
+-- 호스트에 psql 이 있고 직접 붙고 싶다면 (포트 5433 주의):
+--   psql -h localhost -p 5433 -U eyed -d eyed -f app/db/migrations/2026-05-19_retail.sql
 -- ============================================================
 
 -- 1) persons 테이블에 고객 분류 컬럼 추가
