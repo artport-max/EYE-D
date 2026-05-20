@@ -112,11 +112,107 @@ python tools/visual_demo.py --video <테스트비디오경로>
 
 ---
 
-## 테스트 파일 위치 구조
+## 로컬 엣지 파이프라인 구동 테스트 (main.py)
+
+실제 임베디드 디바이스(Jetson Orin Nano 등)에 배포하기 전, 로컬 개발 PC 환경에서 전체 에지 AI 파이프라인(객체 탐지, 동일인 추적, Re-ID 특징 벡터 추출 및 분석)의 기능과 성능을 사전에 실환경에 가깝게 시뮬레이션하여 검증합니다.
+
+### 1. 사전 준비
+
+#### 가상 환경 활성화
+```bash
+conda activate cv_poc
+```
+
+#### 로컬 Qdrant (벡터 DB) 구동 및 초기화 (선택 사항)
+엣지의 Re-ID 특징 벡터 로컬 캐싱 및 검색 연동 테스트를 위해서는 로컬 Qdrant 서버가 필요합니다. 만약 DB가 구동되지 않은 경우, **파이프라인이 자동으로 감지하여 '로컬 DB 없는 순수 추론 모드'로 안전하게 Fallback하여 진행**됩니다.
+
+##### 1) Qdrant 신규 구동
+데이터 관리의 일관성을 위해 **프로젝트 엣지 디렉토리(`EYE-D/edge`)에서 실행**하는 것을 권장합니다. (현재 실행 경로 하위에 `qdrant_storage/` 데이터 폴더가 생성됩니다.)
+
+```bash
+# 프로젝트 엣지 디렉토리(EYE-D/edge)에서 실행
+docker run -d -p 6333:6333 -p 6334:6334 -v $(pwd)/qdrant_storage:/qdrant/storage:z qdrant/qdrant
+```
+
+##### 2) 트러블슈팅: 포트 충돌 및 컬렉션 강제 초기화
+이미 다른 Qdrant 컨테이너가 6333 포트를 점유하고 있거나, 기존에 128차원 등으로 잘못 생성된 컬렉션 정보가 남아 `Vector dimension error`가 발생하는 경우 아래 명령어로 초기화/재작업할 수 있습니다.
+
+* **옵션 A: 특정 컬렉션만 강제 삭제 (구동 중 컬렉션 초기화)**
+  ```bash
+  # 128차원 등 이전 데이터 구조가 꼬인 특정 컬렉션만 골라 즉시 삭제
+  curl -X DELETE http://localhost:6333/collections/prod_reid_collection
+  ```
+  *(삭제 후 파이프라인을 재기동하면 올바른 512차원으로 자동 재생성됩니다.)*
+
+* **옵션 B: 전체 컨테이너 및 저장소 초기화 후 재시작**
+  ```bash
+  # 1. 실행 중인 기존 Qdrant 컨테이너 중지 및 삭제
+  docker rm -f $(docker ps -a -q --filter ancestor=qdrant/qdrant)
+
+  # 2. 로컬 저장 폴더가 지저분할 경우 데이터 물리 삭제 (필요한 경우만)
+  rm -rf qdrant_storage/
+
+  # 3. 깨끗한 상태로 컨테이너 재실행
+  docker run -d -p 6333:6333 -p 6334:6334 -v $(pwd)/qdrant_storage:/qdrant/storage:z qdrant/qdrant
+  ```
+
+### 2. 실행 명령어 (edge/ 디렉토리 기준)
+
+> ⚠️ **주의**: Jetson 환경 최적화 옵션인 `--tensorrt` 옵션은 일반 PC 환경에서 에러를 유발할 수 있으므로, **로컬 실행 시에는 해당 플래그를 제외**하고 실행하십시오.
+
+```bash
+# 반드시 edge/ 디렉토리로 이동한 후 실행해야 합니다.
+cd edge
+
+# 옵션 A. 로컬 비디오 파일을 입력으로 구동 및 모니터링 출력
+python main.py --source ../data/16300000.avi --camera-id cam_01 --display
+
+# 옵션 B. 기본 웹캠(Webcam 0번)을 입력으로 구동 및 모니터링 출력
+python main.py --source 0 --camera-id cam_01 --display
+
+# 옵션 C. RTSP 네트워크 IP 카메라 스트림을 입력으로 구동 및 모니터링 출력
+python main.py --source "rtsp://<IP>:<PORT>/stream_path" --camera-id cam_01 --display
+```
+
+### 3. 모니터링 단축키 & 제어
+`--display` 옵션을 활성화하여 열린 화면 창에서 다음과 같이 인터랙션할 수 있습니다.
+- **`q` / `ESC`**: 모니터링 종료 및 파이프라인 안전 소멸
+- **`Ctrl + C`** (터미널 창): 실행 중인 에지 서비스 강제 정지 및 자원 반환
+
+### 4. Qdrant 수집 데이터 조회 및 확인 방법
+파이프라인 실행 중 로컬 Qdrant에 실시간으로 캐싱되어 저장되는 인물 특징 벡터와 메타데이터는 아래의 방법들로 직접 검증하고 조회할 수 있습니다.
+
+#### 옵션 A: 웹 대시보드(Web UI) 활용 (권장 ⭐️)
+인터넷 브라우저를 열고 아래의 주소에 접속하면 저장된 데이터 구조와 메타데이터를 GUI 화면에서 즉시 조회할 수 있습니다.
+* URL: **[http://localhost:6333/dashboard](http://localhost:6333/dashboard)**
+* **확인 방법**: 좌측 `Collections` 메뉴 ➔ `prod_reid_collection` 선택 ➔ 수집된 포인트(Point)와 메타데이터 페이로드(Payload) 검사.
+
+#### 옵션 B: 터미널 curl을 이용한 메타데이터(Payload) 조회
+터미널 창에서 아래 API를 호출하면 최근 저장된 인물의 세부 메타데이터(입장 시각, 추적 ID, 카메라 ID 등) 상위 10개를 순차적으로 스크롤 조회합니다.
+```bash
+curl -X POST http://localhost:6333/collections/prod_reid_collection/points/scroll \
+     -H 'Content-Type: application/json' \
+     -d '{"limit": 10, "with_payload": true, "with_vector": false}'
+```
+
+#### 옵션 C: 컬렉션 통계 및 연결성 확인
+컬렉션의 상태, 인덱싱 정보 및 총 저장 개수를 빠르게 확인하고 싶을 때 사용합니다.
+```bash
+curl http://localhost:6333/collections/prod_reid_collection
+```
+
+---
+
+## 테스트 파일 및 폴더 위치 구조
 
 ```
 edge/
-├── pytest.ini                              # 설정 (testpaths, pythonpath)
+├── main.py                                 # 엣지 AI 파이프라인 실행 메인 진입점 (YOLO, Tracker, Re-ID 연동)
+├── pytest.ini                              # 테스트 설정 (testpaths, pythonpath)
+├── src/                                    # 엣지 서비스 코어 소스코드
+│   ├── core/                               # 알고리즘 오케스트레이터 및 전처리/추론 모듈
+│   └── infrastructure/                     # DB 클라이언트, 네트워크 전송, 시스템 모니터링 등 인프라
+├── tools/                                  # 시각화 데모 툴 등 테스트 보조 도구
 └── tests/
     ├── conftest.py                         # 공통 피스처 (frame, tracks, mock_db 등)
     ├── harness/
@@ -157,3 +253,46 @@ addopts = -v --tb=short  # 기본 출력 옵션
 ```
 
 > ⚠️ 반드시 `edge/` 디렉토리에서 실행해야 `pytest.ini`가 인식됩니다.
+
+---
+
+## 실기기(Jetson) 배포 및 운영 프로세스 (Production Deployment)
+
+실제 임베디드 장비(예: **Jetson Orin Nano**)에 EYE-D 엣지 서비스를 배포하고 프로덕션 수준으로 무중단 운영할 때의 표준 가이드라인입니다.
+
+### 1. 모델 하드웨어 가속 최적화 (TensorRT 변환)
+Jetson의 GPU 하드웨어를 극대화하기 위해 PyTorch 모델(`.pt`)을 TensorRT Engine(`.engine`)으로 컴파일하여 구동합니다.
+* **프로세스**: PyTorch 모델 ➔ ONNX 포맷 변환 ➔ TensorRT 컴파일 (FP16 혹은 INT8 양자화 적용)
+* **기동 옵션**: 컴파일이 완료되면 `main.py` 기동 시 `--tensorrt` 플래그를 활성화하여 하드웨어 가속을 켭니다.
+
+### 2. 컨테이너 기반 패키징 (Dockerization)
+NVIDIA JetPack 전용 베이스 이미지를 활용하여 의존성 충돌을 없애고 도커 이미지화합니다.
+* **Dockerfile 예시**:
+  ```dockerfile
+  FROM nvcr.io/nvidia/l4t-pytorch:r35.2.1-pth2.0-py3
+  WORKDIR /app
+  COPY requirements.txt .
+  RUN pip install -r requirements.txt
+  COPY edge/ /app
+  CMD ["python", "main.py", "--source", "rtsp://...", "--camera-id", "cam_01", "--tensorrt"]
+  ```
+
+### 3. 엣지 디바이스 프로비저닝 (환경 설정)
+새 Jetson 장비에 리눅스 커널 및 가속 런타임을 연동합니다.
+1. **NVIDIA JetPack SDK 설치**: OS(Ubuntu L4T), CUDA, TensorRT 등 설치.
+2. **NVIDIA Container Toolkit 설치**: 도커 컨테이너 내부에서 GPU 장치 접근 권한을 획득합니다.
+   ```bash
+   sudo apt-get install -y nvidia-docker2
+   sudo systemctl restart docker
+   ```
+
+### 4. 무중단 운영 및 업데이트 관리
+여러 대의 장비와 카메라를 제어하기 위한 오케스트레이션을 적용합니다.
+* **무중단 복구**: `docker-compose` 혹은 경량 쿠버네티스(K3s)를 구성하고 `restart: always` 정책을 주입하여 장비 부팅 시 자동 재가동을 확보합니다.
+* **원격 배포 컨트롤**: AWS IoT Greengrass, Azure IoT Edge 등의 에이전트를 구성하여 중앙 서버에서 원격으로 업데이트 및 RTSP 스트림 설정을 동적으로 제어합니다.
+
+### 5. 원격 모니터링 및 장애 감지
+엣지는 현장에서 과열이나 시스템 락이 자주 발생하므로 주기적으로 메트릭을 수집합니다.
+* **수집 주기**: `src/infrastructure/monitoring_agent.py`가 주기적으로 GPU 온도, FPS, RAM 사용량을 감시합니다.
+* **대시보드 통합**: 수집된 메트릭을 중앙 Zone의 Prometheus/Grafana 관제 시스템으로 송출하여 장애 시 실시간 경고 알림을 작동시킵니다.
+

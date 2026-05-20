@@ -6,8 +6,9 @@ import sys
 import signal
 import os
 
-# edge 디렉토리를 패스에 추가하여 내부 모듈(src.*, tests.*)을 찾을 수 있도록 함
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'edge'))
+# edge 디렉토리 내부의 소스 모듈(src.*)을 올바르게 찾을 수 있도록 현재 디렉토리를 path에 추가
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 
 from src.core.pipeline_runner import PipelineRunner
 from src.core.analytics_engine import AnalyticsEngine

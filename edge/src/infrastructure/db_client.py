@@ -26,7 +26,7 @@ class DBTester:
         except Exception:
             return False
 
-    def validate_insert(self, collection_name, records, vector_size=128):
+    def validate_insert(self, collection_name, records, vector_size=512):
         if self.client is None:
             self.connect()
 
@@ -45,6 +45,7 @@ class DBTester:
 
         self.client.upsert(collection_name=collection_name, points=points)
         return True
+
 
     def validate_search(self, collection_name, query_vector, top_k=10):
         if self.client is None:
@@ -81,3 +82,17 @@ class DBTester:
         if self.client is None:
             self.connect()
         return self.collection_exists(collection_name)
+
+    def upsert(self, collection_name, records, vector_size=512):
+        """PipelineRunner 등에서 호출하는 표준 upsert 인터페이스.
+        내부적으로 validate_insert를 호출하여 데이터를 저장합니다.
+        """
+        return self.validate_insert(collection_name, records, vector_size=vector_size)
+
+
+    def search(self, collection_name, query_vector, top_k=10):
+        """PipelineRunner 등에서 호출하는 표준 search 인터페이스.
+        내부적으로 validate_search를 호출하여 데이터를 검색합니다.
+        """
+        return self.validate_search(collection_name, query_vector, top_k=top_k)
+

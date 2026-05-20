@@ -46,16 +46,18 @@ class PersonDetector:
 
     is_loaded = False
 
-    def __init__(self, model_path: str = 'yolov8n.pt', conf_threshold: float = 0.5, use_tensorrt: bool = False):
+    def __init__(self, model_path: str = 'yolov8n.pt', conf_threshold: float = 0.5, use_tensorrt: bool = False, iou: float = 0.7):
         """
         Args:
             model_path: YOLOv8 가중치 파일 (.pt 또는 TensorRT .engine 파일 등)
             conf_threshold: 탐지 신뢰도 임계값 (이 값 이상의 결과만 반환)
             use_tensorrt: TensorRT 모듈 사용 여부 (향후 확장성을 위해 보존)
+            iou: NMS(Non-Maximum Suppression)를 위한 IoU 임계값 (기본: 0.7)
         """
         self.model_path = model_path
         self.conf_threshold = conf_threshold
         self.use_tensorrt = use_tensorrt
+        self.iou = iou
         self.model = None
         self._initialize_model()
 
@@ -119,6 +121,7 @@ class PersonDetector:
             results = self.model.predict(
                 frame,
                 conf=self.conf_threshold,
+                iou=self.iou,
                 classes=[0],  # YOLO 내부적으로 0(person) 클래스만 출력하도록 필터링
                 verbose=False
             )

@@ -56,7 +56,9 @@ class PipelineRunner:
         self.running = False
         self.frames_processed = 0
 
-        self.preprocessor = ImagePreprocessor(use_awb=True, use_blur=True)
+        use_awb = self.config.get('use_awb', False)
+        use_blur = self.config.get('use_blur', False)
+        self.preprocessor = ImagePreprocessor(use_awb=use_awb, use_blur=use_blur)
         # Null Object 패턴: None 대신 기본 Null 객체를 사용하여 None 체크 제거
         self.db_client = db_client if db_client is not None else NullDBClient()
         self.http_sender = http_sender if http_sender is not None else NullSender()
@@ -93,6 +95,7 @@ class PipelineRunner:
                 model_path=self.config.get('yolo_model', 'yolov8n.pt'),
                 conf_threshold=self.config.get('conf_threshold', 0.5),
                 use_tensorrt=self.config.get('use_tensorrt', False),
+                iou=self.config.get('yolo_iou', 0.7),
             )
             logger.info(f"Detector initialized (model={self.config.get('yolo_model', 'yolov8n.pt')})")
 
