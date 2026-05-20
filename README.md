@@ -63,7 +63,7 @@ EYE-D/
 │   │   ├── schemas/    # Pydantic 스키마
 │   │   └── services/   # 비즈니스 로직
 │   └── tests/          # 단위/통합 테스트
-├── dashboard/          # 통계 및 검색을 위한 프론트엔드 대시보드
+├── frontend/           # 통계 및 검색을 위한 프론트엔드 대시보드
 │   ├── public/
 │   └── src/
 ├── docs/               # 문서 저장소
@@ -176,6 +176,9 @@ python main.py --source ../data/16300000.avi --camera-id CAM_01 --display
 **실행 주요 인자(Arguments)**
 - `--source`: 분석할 소스. RTSP 주소, 비디오 파일 경로 또는 웹캠 ID (기본값: `0`)
 - `--camera-id`: 카메라 고유 식별자 (기본값: `CAM_01`, 서버 DB에 사전 등록된 대문자 식별자 사용 권장)
+- `--db-host`: Qdrant DB 호스트 IP/도메인 (기본값: `localhost`)
+- `--db-port`: Qdrant DB 포트 번호 (기본값: `6333`)
+- `--server-url`: 데이터를 전송할 FastAPI 백엔드 서버 URL (기본값: `http://localhost:8000`)
 - `--tensorrt`: GPU 가속(TensorRT) 엔진 사용 여부
 - `--display`: 처리 결과를 화면에 시각화하여 확인 (UI 지원 환경에서만 동작)
 
