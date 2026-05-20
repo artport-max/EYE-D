@@ -1,3 +1,4 @@
+from __future__ import annotations
 import os
 import asyncpg
 
@@ -34,10 +35,14 @@ async def find_or_create_global_id(
     )
 
     if row and row["distance"] is not None and row["distance"] < distance_threshold:
-        return int(row["global_id"]), 1.0 - float(row["distance"]), True
+        global_id = row["global_id"]
+        distance = row["distance"]
+        return int(global_id), 1.0 - float(distance), True  # type: ignore
 
     # 임계값 안에 못 들어왔으므로 새 person 생성
     new_id = await conn.fetchval(
         "INSERT INTO persons DEFAULT VALUES RETURNING global_id"
     )
-    return int(new_id), None, False
+    if new_id is None:
+        raise ValueError("Failed to create new person")
+    return int(new_id), None, False  # type: ignore[arg-type]
