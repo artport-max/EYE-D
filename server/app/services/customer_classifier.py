@@ -87,7 +87,10 @@ async def classify_and_record(
     if last_visit_at is None:
         new_visit_started = True
     else:
-        gap = (detected_at - last_visit_at).total_seconds()
+        # 시간대(timezone) 미스매치로 인한 TypeError 방지를 위해 두 datetime 객체 모두 로컬 시간대 기준으로 통일(aware)
+        dt_detected = detected_at.astimezone()
+        dt_last = last_visit_at.astimezone()
+        gap = (dt_detected - dt_last).total_seconds()
         if gap > REVISIT_GAP_SECONDS:
             new_visit_started = True
 

@@ -84,41 +84,99 @@ EYE-D/
 
 ## 🚀 설치 및 실행 방법 (Installation & Usage)
 
-### 1. 환경 설정 및 패키지 설치
-- **Anaconda**를 사용하여 격리된 가상 환경에서 작업하는 것을 권장합니다.
-- Python 3.10 이상이 필요합니다.
+본 프로젝트는 현장에 설치되는 **에지 파이프라인(edge)**과 이들이 전송하는 보안/비즈니스 분석 데이터를 실시간 수집 및 가시화하는 **중앙 관리 서버(server)**로 구성되어 있습니다.
 
+---
+
+### 1. 백엔드 중앙 관리 서버 (Central Server) 실행 방법
+
+중앙 서버는 PostgreSQL (pgvector 포함) 데이터베이스와 FastAPI API 웹 서버로 구동됩니다.
+
+#### 1.1. 데이터베이스 기동 (Docker Compose)
+`server/` 디렉토리로 이동하여 환경 설정 템플릿을 활성화하고 도커 컴포즈로 DB 컨테이너를 올립니다.
+
+* **Linux / macOS (Bash) 및 Windows (Git Bash):**
+  ```bash
+  cd server
+  cp .env.example .env
+  docker compose up -d
+  ```
+
+* **Windows (PowerShell):**
+  ```powershell
+  cd server
+  Copy-Item .env.example .env
+  docker compose up -d
+  ```
+
+*(호스트 포트 `5433`으로 PostgreSQL 서비스가 맵핑되어 열립니다.)*
+
+#### 1.2. 초기 데이터베이스 마이그레이션 적용
+최초 기동 시점 스키마 외에 리테일 분석을 위한 마이그레이션 스크립트를 데이터베이스에 적재합니다.
+
+* **Linux / macOS (Bash):**
+  ```bash
+  cat app/db/migrations/2026-05-19_retail.sql | docker exec -i eyed-postgres psql -U eyed -d eyed
+  ```
+
+* **Windows (PowerShell):**
+  ```powershell
+  Get-Content .\app\db\migrations\2026-05-19_retail.sql | docker exec -i eyed-postgres psql -U eyed -d eyed
+  ```
+
+#### 1.3. FastAPI 서버 가동
+파이썬 가상환경을 생성하고 의존 패키지를 받아 가동시킵니다.
+
+* **Linux / macOS (Bash):**
+  ```bash
+  python -m venv .venv
+  source .venv/bin/activate
+  pip install -r requirements.txt
+  uvicorn app.main:app --reload
+  ```
+
+* **Windows (PowerShell):**
+  ```powershell
+  python -m venv .venv
+  .venv\Scripts\Activate.ps1
+  pip install -r requirements.txt
+  uvicorn app.main:app --reload
+  ```
+
+*(서버는 `http://localhost:8000` 에서 API 수신 상태를 활성화합니다.)*
+
+---
+
+### 2. 에지 AI 파이프라인 (Edge Pipeline) 실행 방법
+
+에지 파이프라인은 RTSP 스트림이나 비디오 데이터로부터 인물 탐지, ByteTrack 추적, OSNet 특징 벡터 추출을 거쳐 실시간으로 중앙 서버에 전달합니다.
+
+#### 2.1. 로컬 Vector DB (Qdrant) 기동
+특징 벡터 로컬 캐싱 및 매칭을 위해 로컬 Qdrant를 활성화합니다. (만약 Qdrant를 올리지 않아도 파이프라인이 자동 인식하여 '로컬 DB 없는 추론 모드'로 안전하게 Fallback 구동됩니다.)
 ```bash
-# conda 환경 생성 및 활성화
-conda create -n cv_poc python=3.10
-conda activate cv_poc
-
-# 필수 패키지 설치
-pip install ultralytics torch torchvision torchaudio opencv-python numpy
-pip install qdrant-client fastapi uvicorn psutil
-# (ByteTrack 및 Torchreid는 공식 저장소 가이드에 따라 별도로 추가 설치를 진행합니다.)
-```
-
-### 2. 인프라 준비 (로컬 Vector DB)
-에지단에서 생성되는 특징 벡터(Re-ID)의 로컬 캐싱 및 매칭을 위해 Qdrant DB를 실행해야 합니다.
-
-```bash
-# docker-compose를 이용해 백그라운드에서 Qdrant 실행
+# 프로젝트 최상단 디렉토리에서 실행
 docker-compose up -d qdrant
 ```
 
-### 3. Edge Pipeline 실행
-모든 준비가 완료되었다면 프로젝트 최상위 경로에서 `main.py`를 통해 파이프라인을 구동합니다.
-
+#### 2.2. 에지 파이프라인 설치 및 실행
 ```bash
-# 프로젝트 최상단 디렉토리에서 실행
-PYTHONPATH=. python main.py --source 0 --camera-id cam_01 --display
+# 엣지 디렉토리로 이동
+cd edge
+
+# 가상환경 활성화 (Conda 환경 권장)
+conda activate cv_poc
+
+# 필수 패키지 설치
+pip install -r ../requirements.txt
+
+# 에지 파이프라인 가동 (기본 백엔드 http://localhost:8000으로 데이터 자동 전송)
+python main.py --source ../data/16300000.avi --camera-id CAM_01 --display
 ```
 
 **실행 주요 인자(Arguments)**
-- `--source`: 분석할 영상 소스. RTSP 주소, 비디오 파일 경로 또는 로컬 웹캠 ID (기본값: `0`)
-- `--camera-id`: 현재 카메라의 고유 식별자 (기본값: `cam_01`)
-- `--tensorrt`: TensorRT 엔진 활성화 (Jetson 환경 최적화)
+- `--source`: 분석할 소스. RTSP 주소, 비디오 파일 경로 또는 웹캠 ID (기본값: `0`)
+- `--camera-id`: 카메라 고유 식별자 (기본값: `CAM_01`, 서버 DB에 사전 등록된 대문자 식별자 사용 권장)
+- `--tensorrt`: GPU 가속(TensorRT) 엔진 사용 여부
 - `--display`: 처리 결과를 화면에 시각화하여 확인 (UI 지원 환경에서만 동작)
 
 ---

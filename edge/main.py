@@ -14,6 +14,7 @@ from src.core.pipeline_runner import PipelineRunner
 from src.core.analytics_engine import AnalyticsEngine
 from src.infrastructure.db_client import DBTester
 from src.infrastructure.monitoring_agent import MonitoringAgent
+from src.infrastructure.http_client import ResilientServerSender
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("main")
@@ -29,11 +30,12 @@ def signal_handler(sig, frame):
 def main():
     parser = argparse.ArgumentParser(description="Jetson Orin Nano Edge AI Pipeline (Production)")
     parser.add_argument("--source", type=str, default="0", help="RTSP URL, 비디오 파일 경로 또는 웹캠 ID (기본값: 0)")
-    parser.add_argument("--camera-id", type=str, default="cam_01", help="카메라 식별자")
+    parser.add_argument("--camera-id", type=str, default="CAM_01", help="카메라 식별자")
     parser.add_argument("--db-host", type=str, default="localhost", help="Qdrant DB 호스트")
     parser.add_argument("--db-port", type=int, default=6333, help="Qdrant DB 포트")
     parser.add_argument("--tensorrt", action="store_true", help="TensorRT 엔진 사용 여부")
     parser.add_argument("--display", action="store_true", help="화면 출력 여부 (UI가 있는 환경에서만 사용)")
+    parser.add_argument("--server-url", type=str, default="http://localhost:8000", help="FastAPI 백엔드 서버 URL")
     args = parser.parse_args()
 
     # 종료 시그널 등록 (Ctrl+C 등)
@@ -55,7 +57,11 @@ def main():
     collection_name = 'prod_reid_collection'
     config = {'use_tensorrt': args.tensorrt, 'collection_name': collection_name}
     
-    runner = PipelineRunner(config=config, db_client=db_client)
+    # 백엔드 서버 전송용 HTTP 클라이언트 초기화 (복원력 탑재)
+    logger.info(f"서버 전송 클라이언트 초기화: {args.server_url}")
+    http_sender = ResilientServerSender(base_url=args.server_url, db_path="edge_resilience_buffer.db")
+    
+    runner = PipelineRunner(config=config, db_client=db_client, http_sender=http_sender)
     analytics = AnalyticsEngine(db_client=db_client, collection_name=collection_name)
     
     logger.info("AI 파이프라인 초기화 중...")
@@ -123,6 +129,10 @@ def main():
         except cv2.error:
             pass
     runner.stop()
+    
+    # 백그라운드 전송 스레드 종료 및 정리
+    if http_sender:
+        http_sender.stop()
 
 if __name__ == "__main__":
     main()

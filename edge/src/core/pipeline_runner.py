@@ -224,30 +224,33 @@ class PipelineRunner:
         if not reid_vectors:
             return
 
-        payload = {
-            'camera_id': camera_id,
-            'timestamp': time.time(),
-            'frame_index': self.frames_processed,
-            'tracks': [
-                {
-                    'track_id': v['track_id'],
-                    'vector': v['vector'],
-                    'confidence': v.get('confidence', 0.0),
-                    'bbox': v.get('bbox', []),
-                }
-                for v in reid_vectors
-            ],
-        }
+        from datetime import datetime
 
-        try:
-            status_code, _ = self.http_sender.post('/api/v1/vectors', payload)
-            if status_code not in (0, 200):
-                logger.warning(
-                    f'Server POST failed (status={status_code}): '
-                    f'{len(reid_vectors)} vector(s) for camera {camera_id}'
-                )
-        except Exception as e:
-            logger.warning(f'Server send error: {e}')
+        for v in reid_vectors:
+            # 서버 Pydantic Schema(DetectionIn)에 맞게 개별 데이터 페이로드 빌드
+            # timestamp는 ISO 8601 형식의 문자열로 변환하여 전송
+            timestamp_str = datetime.fromtimestamp(time.time()).isoformat()
+            
+            payload = {
+                'camera_id': camera_id,
+                'tracklet_id': str(v['track_id']),
+                'embedding_identity': [float(x) for x in v['vector']],
+                'timestamp': timestamp_str,
+                'bbox': [float(x) for x in v.get('bbox', [])],
+                'event_type': 'detection'
+            }
+
+            try:
+                # 서버 endpoint를 /api/v1/security/detections 로 변경
+                # 로컬 버퍼링 성공 시 202, 즉시 전송 성공 시 200이 반환되므로 허용 목록에 추가
+                status_code, _ = self.http_sender.post('/api/v1/security/detections', payload)
+                if status_code not in (0, 200, 201, 202):
+                    logger.warning(
+                        f'Server POST failed (status={status_code}): '
+                        f'track_id={v["track_id"]} for camera {camera_id}'
+                    )
+            except Exception as e:
+                logger.warning(f'Server send error for track {v["track_id"]}: {e}')
 
     # ------------------------------------------------------------------
     # 상태 조회
