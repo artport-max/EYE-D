@@ -47,8 +47,14 @@ copy .env.example .env
 
 ```
 docker compose up -d                            # Postgres 기동 (schema.sql 자동 초기화)
-python -m venv .venv && .venv\Scripts\activate
+python -m venv .venv && .venv\Scripts\activate  # (Linux/macOS: source .venv/bin/activate)
 pip install -r requirements.txt
+
+# DB 마이그레이션 적용 (최초 1회만 실행. DB 볼륨 삭제 후 재기동 시에도 1회 실행 필요)
+# - Windows (PowerShell):
 Get-Content .\app\db\migrations\2026-05-19_retail.sql | docker exec -i eyed-postgres psql -U eyed -d eyed
+# - Linux / macOS (Bash):
+# cat app/db/migrations/2026-05-19_retail.sql | docker exec -i eyed-postgres psql -U eyed -d eyed
+
 uvicorn app.main:app --reload
 ```
