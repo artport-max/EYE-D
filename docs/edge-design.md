@@ -37,6 +37,7 @@
     - [9.4. tracker.py](#94-trackerpy-boxmot-기반-동일인물-궤적-추적)
     - [9.5. reid_extractor.py](#95-reid_extractorpy-osnet-re-id-특징-벡터-추출-모듈)
     - [9.6. analytics_engine.py](#96-analytics_enginepy-집계-및-로컬-벡터-서칭)
+    - [9.7. best_shot.py](#97-best_shotpy-대표-프레임-선별-및-전송-제어)
 10. [Edge Testing & Visual Demo Verification (파이프라인 검증 체계)](#10-edge-testing--visual-demo-verification-파이프라인-검증-체계)
     - [10.1. 격리 단위 테스트 구성](#101-격리-단위-테스트-구성)
     - [10.2. 실시간 인터랙티브 데모 (visual_demo.py)](#102-실시간-인터랙티브-데모-visual_demopy)
@@ -56,6 +57,7 @@ classDiagram
         class PersonDetector
         class PersonTracker
         class ReIDExtractor
+        class BestShotSelector
         class AnalyticsEngine
     }
     namespace src.infrastructure {
@@ -69,8 +71,9 @@ classDiagram
     PipelineRunner --> PersonDetector : 2. YOLOv8 객체 탐지
     PipelineRunner --> PersonTracker : 3. BoxMOT 동일 객체 추적
     PipelineRunner --> ReIDExtractor : 4. OSNet Re-ID 임베딩 추출
-    PipelineRunner --> NullDBClient : 5. 로컬 벡터 DB 저장 (Upsert)
-    PipelineRunner --> NullSender : 6. 실시간 서버 이벤트 전송 (POST)
+    PipelineRunner --> BestShotSelector : 5. 대표 프레임 (Best-shot) 선별
+    PipelineRunner --> NullDBClient : 6. 소멸 확정 벡터 DB 저장 (Upsert)
+    PipelineRunner --> NullSender : 7. 소멸 확정 서버 이벤트 전송 (POST)
     AnalyticsEngine --> DBTester : 크로스 카메라 매칭 검증 테스트 수행
 ```
 
@@ -96,6 +99,7 @@ classDiagram
             -PersonDetector _detector
             -PersonTracker _tracker
             -ReIDExtractor _reid
+            -BestShotSelector _best_shot_selector
             +start() bool
             +stop() bool
             +process_frame(frame, camera_id) dict
@@ -162,12 +166,21 @@ classDiagram
             +extract(frame, track_results) list
             -_initialize_extractor()
         }
+
+        class BestShotSelector {
+            +int max_missing_frames
+            +int min_bbox_size
+            +dict active_tracks
+            +update(reid_vectors, current_frame_idx) list
+            +get_remaining_and_flush() list
+        }
     }
 
     PipelineRunner --> ImagePreprocessor : uses
     PipelineRunner --> PersonDetector : uses
     PipelineRunner --> PersonTracker : uses
     PipelineRunner --> ReIDExtractor : uses
+    PipelineRunner --> BestShotSelector : uses
     PersonDetector ..> DetectionResult : creates
     PersonTracker ..> TrackResult : creates
 ```
@@ -327,6 +340,7 @@ sequenceDiagram
     participant PD as PersonDetector
     participant PT as PersonTracker
     participant RE as ReIDExtractor
+    participant BS as BestShotSelector
     participant DB as SQLite Local Queue
     participant Svr as FastAPI Backend Server
 
@@ -349,15 +363,20 @@ sequenceDiagram
         RE-->>PR: Re-ID 512차원 특징 벡터 반환
     end
 
-    PR->>DB: 7. 비상용 로컬 버퍼 데이터 임시 적재 (SQLite)
-    
-    alt 네트워크 통신 정상 상태
-        PR->>Svr: 8. 실시간 HTTP POST 전송 (Camera ID, BBox, 벡터)
-        Svr-->>PR: 전송 성공 (200 OK)
-        PR->>DB: 9. 전송 완료된 로컬 버퍼 레코드 삭제
-    else 네트워크 일시 단절 발생 (Resilience)
-        PR->>PR: 10. 서버 통신 예외 감지 및 로컬 적재 데이터 보존 유지
-        Note right of PR: 파이프라인 백그라운드 재시도 데몬 구동
+    PR->>BS: 7. 실시간 추출 벡터 캐시 업데이트 (update)
+    BS-->>PR: 소멸 확정 대표 프레임 리스트 (expired_vectors) 반환
+
+    alt expired_vectors가 비어있지 않음
+        PR->>DB: 8. 로컬 버퍼 데이터 임시 적재 (SQLite)
+        
+        alt networks 통신 정상 상태
+            PR->>Svr: 9. 실시간 HTTP POST 전송 (Camera ID, BBox, 벡터)
+            Svr-->>PR: 전송 성공 (200 OK)
+            PR->>DB: 10. 전송 완료된 로컬 버퍼 레코드 삭제
+        else 네트워크 일시 단절 발생 (Resilience)
+            PR->>PR: 11. 서버 통신 예외 감지 및 로컬 적재 데이터 보존 유지
+            Note right of PR: 파이프라인 백그라운드 재시도 데몬 구동
+        end
     end
 
     PR-->>Src: 프레임 가공 처리 완료 응답
@@ -544,8 +563,9 @@ Jetson의 GPU 및 NVDLA(딥러닝 가속기)를 최대한 활용하기 위해 YO
 
 에지 디바이스에서 실시간으로 추출된 Re-ID 특징 벡터를 매 프레임 중앙 서버로 송신하면 대역폭 낭비와 서버의 데이터베이스 적재 과부하를 초래합니다. 이를 예방하기 위해 시스템 구축 및 스케일 아웃에 다음과 같은 최적화 전략들을 설계 근거로 반영합니다.
 
-1. **대표 프레임 (Keyframe / Best-shot) 선별 전송**
+1. **대표 프레임 (Keyframe / Best-shot) 선별 전송 [구현 완료 - Done]**
    - 동일 인물(동일 Track ID)에 대해 매 프레임 벡터를 보내는 대신, 추적 경로 상에서 객체 탐지 신뢰도(Confidence)가 가장 높고 바운딩 박스 크기가 커 해상도가 우수한 프레임을 베스트 샷(Best-shot)으로 기록하고 최종 1회 혹은 소수 회만 전송합니다.
+   - **동작 스펙**: `YOLO 신뢰도 * BBox Area` 공식에 기반해 최고 스코어 프레임을 실시간 캐싱 갱신하며, 객체가 화면에서 연속 30프레임 이상 미검출 시 완전히 소멸한 것으로 판정하여 최종 1회만 로컬 DB 및 원격 서버로 송출합니다. 최소 크기 필터(40px 미만 배제) 및 프로세스 종료 시 잔여 캐시 강제 방출(Flush) 메커니즘을 지원합니다.
 
 2. **시간적 특징 결합 (Temporal Feature Aggregation / Pooling)**
    - 한 인물이 화면에 체류하는 동안 매 프레임 추출한 복수의 Re-ID 벡터들을 에지단에서 시간축 기반 평균(Mean Pooling) 또는 신뢰도 가중 평균(Confidence-weighted Pooling) 연산으로 정밀하게 압축하여, 트랙 종료 시점에 하나의 고품질 평균 벡터만 전송합니다.
@@ -560,7 +580,7 @@ Jetson의 GPU 및 NVDLA(딥러닝 가속기)를 최대한 활용하기 위해 YO
 
 | 최적화 전략 | 적용 순서 | 주요 작동 원리 | 장점 (Pros) | 단점 (Cons) | 추천 및 도입 이유 (Rationale) |
 | :--- | :---: | :--- | :--- | :--- | :--- |
-| **대표 프레임 선별<br>(Keyframe / Best-shot)** | **1순위<br>(최우선)** | 추적 중인 궤적에서 최고 신뢰도/최대 해상도 BBox를 선정하여 전송 | - 개발 및 로직 복잡도가 비교적 낮음<br>- 최상의 입력 화질을 보장하여 식별력 유지 | - 트래킹이 종료되거나 유효 기간이 지날 때까지 전송 지연 발생<br>- 포즈 변화/방향 전환 시 단일 샷 한계 노출 | **가성비 최상**: 에지단 자원을 거의 사용하지 않으면서도 API 송신량을 즉시 95% 이상 획기적으로 낮출 수 있는 첫 단추입니다. |
+| **대표 프레임 선별<br>(Keyframe / Best-shot)** | **1순위 (Done)** | 추적 중인 궤적에서 최고 신뢰도/최대 해상도 BBox를 선정하여 전송 | - 개발 및 로직 복잡도가 비교적 낮음<br>- 최상의 입력 화질을 보장하여 식별력 유지 | - 트래킹이 종료되거나 유효 기간이 지날 때까지 전송 지연 발생<br>- 포즈 변화/방향 전환 시 단일 샷 한계 노출 | **가성비 최상**: 에지단 자원을 거의 사용하지 않으면서도 API 송신량을 즉시 95% 이상 획기적으로 낮출 수 있는 첫 단추입니다. |
 | **이벤트 트리거<br>(State-based)** | **2순위** | 진입(Enter), 가상선 통과(Line Crossing), 퇴장(Exit) 시점에만 선택 전송 | - 불필요한 중간 상태 전송을 차단하여 대역폭 절감 최대화<br>- 서버와 DB 쓰기 부하를 실무 수준으로 경감 | - 탐지/라인 크로싱 로직이 오동작하거나 누락될 경우 해당 인물 데이터 유실 | **비즈니스 연동**: Line Crossing 등 대시보드 통계 이벤트에 직결되는 연산으로, 1순위 대표 프레임 선정과 병행하기 쉽습니다. |
 | **시간적 특징 결합<br>(Temporal Pooling)** | **3순위** | 체류 기간의 여러 프레임 특징 벡터들을 시간축 평균 또는 가중 평균 압축 송출 | - 일시적 가려짐이나 노이즈 왜곡을 수학적으로 상쇄<br>- 단일 벡터 대비 가장 뛰어난 Re-ID 인식 신뢰도 | - 에지 내부 메모리 상에서 프레임별 벡터를 보존/연산하는 오버헤드<br>- 실시간성 대비 배치성 성격이 강함 | **인식 정확도 개선**: 1순위 도입 이후, 동일인 매칭 정확도가 낮아 역광/노이즈 시 오인식이 빈번할 때 고도화용으로 적용합니다. |
 | **로컬 유사도 비교<br>(Similarity Thresholding)** | **4순위** | 이전 전송 벡터와 신규 벡터의 코사인 유사도를 에지단에서 계산해 중복 필터링 | - 인물의 구도, 포즈가 급변할 때만 유연하게 보정 데이터를 갱신 전송<br>- 물리적인 실시간 흐름 추적성 유지 | - 매 프레임 임베딩 벡터 간 유사도 연산 오버헤드 추가 발생<br>- 에지단 Qdrant/Milvus 의존성 증가 | **특수 목적**: 장시간 한 앵글에 고정적으로 머무르는 공간 관찰 등 동적 갱신이 필수적인 시나리오에 한해 최후순위로 구현합니다. |
@@ -648,12 +668,26 @@ Jetson의 GPU 및 NVDLA(딥러닝 가속기)를 최대한 활용하기 위해 YO
 
 ---
 
+### 9.7. `best_shot.py` (대표 프레임 선별 및 전송 제어)
+
+동일 Track ID의 궤적 내에서 프레임 품질을 동적으로 스코어링하여 최적의 대표 프레임을 캐싱하고, 객체 소멸 시점 혹은 설정된 주기마다 데이터를 전송하도록 제어하는 최적화 모듈입니다.
+
+#### 주요 설계 특징:
+* **품질 평점 공식**: `BBox 크기(Area) * YOLO 신뢰도(Confidence)` 연산을 활용해, 인물이 카메라와 가까워 해상도가 높고 판정률이 우수한 시점을 검증 및 저장합니다.
+* **주기적 중간 전송 (Periodic Interval Transmission)**: `send_interval_frames` 변수 설정을 통해, 활성화 상태인 트랙이 완전히 소멸하기 전이라도 설정된 프레임 주기(예: 150프레임 = 약 5초)마다 그때까지 확보된 베스트 샷 정보를 데이터베이스와 서버로 중간 송출할 수 있어 실시간 모니터링 정밀도를 보장합니다.
+* **전송 구분 플래그 (`is_final`)**: 데이터 송출 시 중간 전송 보고(`is_final = False`)와 최종 트랙 소멸/만료에 따른 전송(`is_final = True`)을 동적으로 마킹하여 서버 측이 비즈니스 로직(체류 종료 처리 등)을 정확하게 판별할 수 있도록 돕습니다.
+* **미출현 만료(Aging) 구조**: `max_missing_frames` 변수를 임계치로 두어, 연속적으로 감출되지 않을 때 객체가 앵글을 벗어난 것으로 간주하고 소멸 처리하여 최종 베스트 샷을 방출하고 메모리를 정리합니다.
+* **종료 시 Flush 동기화**: 메모리 누수나 데이터 누락을 완전 방어하기 위해 프로세스 중단 단계에서 모든 활성 트랙들의 베스트 샷을 강제 동기화(`is_final = True`)하여 최종 방출하는 기능을 제공합니다.
+
+---
+
 ## 10. Edge Testing & Visual Demo Verification (파이프라인 검증 체계)
 
-EYE-D Edge 파이프라인은 기능 구현에만 그치지 않고, 복잡한 하드웨어 환경 및 예외 시나리오를 소프트웨어 수준에서 완벽하게 검증하기 위한 **51개 단위 테스트 세트** 및 **실시간 비주얼 상호작용 데모**를 갖추고 있습니다.
+**55개 단위 테스트 세트** 및 **실시간 비주얼 상호작용 데모**를 구현하였습니다.
 
 ### 10.1. 격리 단위 테스트 구성
 `edge/tests/` 하위 폴더에 독립적인 모킹(Mocking) 및 하네스 모듈을 설계하여, GPU가 없거나 로컬 네트워크가 구축되지 않은 격리된 CI/CD 환경에서도 정상적으로 아키텍처 결함을 스캔할 수 있습니다.
+* **`test_best_shot.py` (5 passed)**: 대표 프레임 품질 갱신, 프레임 만료 소멸, 일괄 방출(Flush), 최소 BBox 크기 배제, 그리고 설정 프레임 주기별 중간 전송 로직의 수학적 및 시간적 무결성 검증
 * **`test_null_objects.py` (20 passed)**: DB나 서버 통신 장애 상황 시 Null Object가 안전하게 가동되는지 검증
 * **`test_pipeline_runner.py` (21 passed)**: 프레임 가공 동기식 루프 및 오케스트레이션 단계별 데이터 연쇄 동작 확인
 * **`test_phase2_resilience.py` (4 passed)**: ONNX 가속기 유무에 따른 Fallback 기능 및 데이터 SQLite 임시 유실 대응성 추적

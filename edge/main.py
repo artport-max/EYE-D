@@ -55,7 +55,11 @@ def main():
     
     # 2. 파이프라인 및 분석 엔진 초기화
     collection_name = 'prod_reid_collection'
-    config = {'use_tensorrt': args.tensorrt, 'collection_name': collection_name}
+    config = {
+        'use_tensorrt': args.tensorrt,
+        'collection_name': collection_name,
+        'send_interval_frames': 10
+    }
     
     # 백엔드 서버 전송용 HTTP 클라이언트 초기화 (복원력 탑재)
     logger.info(f"서버 전송 클라이언트 초기화: {args.server_url}")
