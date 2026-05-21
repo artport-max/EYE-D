@@ -18,6 +18,7 @@ from src.core.preprocessor import ImagePreprocessor
 from src.core.detector import PersonDetector
 from src.core.tracker import PersonTracker
 from src.core.reid_extractor import ReIDExtractor
+from src.core.best_shot import BestShotSelector
 from src.infrastructure.null_objects import NullDBClient, NullSender
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,7 @@ class PipelineRunner:
         self.config = config or {}
         self.running = False
         self.frames_processed = 0
+        self._last_camera_id = "cam_0"
 
         use_awb = self.config.get('use_awb', False)
         use_blur = self.config.get('use_blur', False)
@@ -63,6 +65,16 @@ class PipelineRunner:
         self.db_client = db_client if db_client is not None else NullDBClient()
         self.http_sender = http_sender if http_sender is not None else NullSender()
         self.collection_name = self.config.get('collection_name', 'reid_collection')
+
+        # 대표 프레임 선별 셀렉터 초기화
+        max_missing_frames = self.config.get('max_missing_frames', 30)
+        min_bbox_size = self.config.get('min_bbox_size', 40)
+        send_interval_frames = self.config.get('send_interval_frames', 0)
+        self.best_shot_selector = BestShotSelector(
+            max_missing_frames=max_missing_frames,
+            min_bbox_size=min_bbox_size,
+            send_interval_frames=send_interval_frames
+        )
 
         # 각 컴포넌트는 start() 시점에 초기화
         self._detector: PersonDetector = None
@@ -86,6 +98,16 @@ class PipelineRunner:
         """파이프라인을 종료합니다."""
         self.running = False
         logger.info('Pipeline stopped.')
+
+        # 분석 정지 시 캐시에 남은 트랙들의 베스트 샷을 강제 전송(Flush)
+        if hasattr(self, 'best_shot_selector'):
+            remaining_vectors = self.best_shot_selector.get_remaining_and_flush()
+            if remaining_vectors:
+                last_cam = getattr(self, '_last_camera_id', 'cam_0')
+                logger.info(f"Flushing {len(remaining_vectors)} remaining tracks for camera {last_cam}")
+                self._save_to_db(remaining_vectors, last_cam)
+                self._send_to_server(remaining_vectors, last_cam)
+
         return True
 
     def _initialize_models(self):
@@ -143,6 +165,8 @@ class PipelineRunner:
 
         start_time = time.time()
 
+        self._last_camera_id = camera_id
+
         # 1. 전처리
         processed_frame = self.preprocessor.process(frame)
 
@@ -156,11 +180,14 @@ class PipelineRunner:
         # 4. Re-ID 특징 추출 (ReIDExtractor)
         reid_vectors = self._reid.extract(processed_frame, track_results)
 
-        # 5. 벡터 DB 저장
-        self._save_to_db(reid_vectors, camera_id)
+        # 5. 대표 프레임 (Best-shot) 필터링 및 소멸 궤적 데이터 획득
+        expired_vectors = self.best_shot_selector.update(reid_vectors, self.frames_processed)
 
-        # 6. 서버 전송 (Phase 3: ServerSender 주입 시 실제 동작, 미주입 시 NullSender)
-        self._send_to_server(reid_vectors, camera_id)
+        # 6. 벡터 DB 저장 (소멸 확정된 대표 프레임만 저장)
+        self._save_to_db(expired_vectors, camera_id)
+
+        # 7. 서버 전송 (Phase 3: ServerSender 주입 시 실제 동작, 미주입 시 NullSender)
+        self._send_to_server(expired_vectors, camera_id)
 
         self.frames_processed += 1
 
@@ -237,7 +264,8 @@ class PipelineRunner:
                 'embedding_identity': [float(x) for x in v['vector']],
                 'timestamp': timestamp_str,
                 'bbox': [float(x) for x in v.get('bbox', [])],
-                'event_type': 'detection'
+                'event_type': 'detection',
+                'is_final': v.get('is_final')
             }
 
             try:

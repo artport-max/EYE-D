@@ -15,6 +15,7 @@ class DetectionIn(BaseModel):
     timestamp: datetime
     bbox: list[float] = Field(..., description="[x1, y1, x2, y2]")
     event_type: str = Field(default="detection", examples=["detection", "intrusion"])
+    is_final: Optional[bool] = Field(default=None, description="트랙 종료 여부 (최종 소멸 시 True, 중간 보고 시 False)")
 
     # --- arttrace 확장 슬롯 (옵션, 현 단계엔 null 허용) ---
     pose_keypoints: Optional[list[list[float]]] = None
