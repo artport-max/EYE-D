@@ -19,3 +19,8 @@ uvicorn>=0.23.0
 
 # System Monitoring
 psutil>=5.9.0
+
+# ONNX Runtime Acceleration
+onnxruntime>=1.15.0
+onnx>=1.14.0
+onnxscript>=0.1.0

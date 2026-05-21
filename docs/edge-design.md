@@ -27,9 +27,10 @@
 8. [Design Rationale (설계적 결정 및 핵심 근거)](#8-design-rationale-설계적-결정-및-핵심-근거)
     - [8.1. 객체 생성과 모델 기동의 엄격한 분리](#81-객체-생성__init__과-모델-기동start의-엄격한-분리)
     - [8.2. Re-ID 특징 벡터 전송 최적화](#82-re-id-특징-벡터-전송-최적화-re-id-vector-transmission-optimization)
-    - [8.3. 다중 스트림 환경에서의 GPU 인스턴스 공유](#83-다중-스트림-환경에서의-gpu-인스턴스-공유)
-    - [8.4. 최신 프레임 보존 Drop 전략 (Frame Drop Strategy)](#84-최신-프레임-보존-drop-전략-frame-drop-strategy)
-    - [8.5. ONNX 및 TensorRT 가속 파이프라인 채택](#85-onnx-및-tensorrt-가속-파이프라인-채택)
+    - [8.3. 에지-서버 간 동일 Re-ID 모델 동기화 및 관리 구조](#83-에지-서버-간-동일-re-id-모델-동기화-및-관리-구조)
+    - [8.4. 다중 스트림 환경에서의 GPU 인스턴스 공유](#84-다중-스트림-환경에서의-gpu-인스턴스-공유)
+    - [8.5. 최신 프레임 보존 Drop 전략 (Frame Drop Strategy)](#85-최신-프레임-보존-drop-전략-frame-drop-strategy)
+    - [8.6. ONNX 및 TensorRT 가속 파이프라인 채택](#86-onnx-및-tensorrt-가속-파이프라인-채택)
 9. [코드 설명 (Core Source Code Analysis)](#9-코드-설명-core-source-code-analysis)
     - [9.1. pipeline_runner.py](#91-pipeline_runnerpy-실행-오케스트레이터-및-제어-루프)
     - [9.2. preprocessor.py](#92-preprocessorpy-지능형-화질-개선-필터-세트)
@@ -510,7 +511,12 @@ python3 -m venv .venv
 source .venv/bin/activate
 
 # 의존성 설치 (Jetson 환경에 맞춰 패키지 설치)
+# requirements.txt에 등록된 onnxruntime 패키지가 함께 설치됩니다.
 pip install -r requirements.txt
+
+# Jetson (CUDA 가속) 환경에서 GPU 가속을 활용하려면 onnxruntime-gpu 설치를 권장합니다.
+# pip install onnxruntime-gpu
+
 # jtop (Jetson 모니터링 도구) 설치
 sudo -H pip install -U jetson-stats
 ```
@@ -587,14 +593,26 @@ Jetson의 GPU 및 NVDLA(딥러닝 가속기)를 최대한 활용하기 위해 YO
 
 ---
 
-### 8.3. 다중 스트림 환경에서의 GPU 인스턴스 공유
+### 8.3. 에지-서버 간 동일 Re-ID 모델 동기화 및 관리 구조
+* **근거**: 에지(Jetson)와 중앙 백엔드 서버(FastAPI)가 서로 다른 종류나 가중치 버전 of OSNet 모델을 사용하게 되면, 동일한 인물을 대상으로 추출한 512차원 특징 벡터 간의 기하학적 분포와 가중치 매핑 구조가 어긋납니다.
+* **구조적 솔루션**:
+  1. **ONNX 포맷 표준화**: 에지와 서버 양측 환경의 PyTorch 라이브러리 버전 및 런타임 종속성 불일치를 방지하기 위해, 모델의 기본 서빙 규격을 **ONNX 파일(`.onnx`)**로 일원화합니다.
+  2. **환경변수를 통한 정적 가중치 경로 바인딩**: 각 환경의 설정 파일(`.env`)에 `REID_MODEL_PATH` 환경변수를 강제 설정하고, 런타임 시 임의의 다운로드나 자동 캐싱 대신 정해진 로컬 단일 경로를 바라보게 제어합니다.
+  3. **컨테이너 배포 일관성**: Docker 배포 시 호스트 머신의 공통 볼륨 영역(`/opt/eye-d/models`)을 각 컨테이너 내부로 마운트 처리하여 완벽히 일치하는 단일 모델 파일 바이너리를 동시에 물리적으로 참조하도록 구현합니다.
+* **생성 및 확보 시점 (ONNX Lifecycle)**:
+  * **에지(Edge) 관점**: 에지 파이프라인 최초 기동 시, `ReIDExtractor` 모듈 내부에서 실행 경로 상에 ONNX 파일(`osnet_x0_25.onnx`)의 부재를 자동 감지하면 PyTorch 가중치 파일로부터 ONNX 포맷 모델을 즉시 변환(Auto-Export) 및 디스크(어플리케이션을 구동한 현재 작업 디렉토리 바로 아래, 예: `edge/osnet_x0_25.onnx`)에 영구 보존합니다. 이후 2회차 실행부터는 변환 과정 없이 보존된 ONNX 파일만을 즉시 로드하여 GPU 가속을 적용합니다.
+  * **서버(Server) 관점**: 서버는 보안 폐쇄망 대응 및 에지단 벡터 분포와의 완벽한 1:1 수치 일관성을 보장하기 위해 런타임 중에 외부 네트워크에서 모델을 다운로드받아 빌드하지 않습니다. 대신 배포 단계(CI/CD 빌드 타임 혹은 Docker 이미지 패키징)에서 에지가 검증 완료한 동일 ONNX 바이너리 파일(`osnet_x0_25.onnx`)을 코드 모듈 외부에 격리된 서버 프로젝트 루트의 지정 경로(`server/models/osnet_x0_25.onnx`)로 미리 이관 및 확보하여 배치합니다. 이후 FastAPI 기동 시점(Lifespan Startup)에 환경변수 `REID_MODEL_PATH="models/osnet_x0_25.onnx"` 값을 참조하여 해당 파일 바이너리를 RAM에 단 1회 로드 및 상주(Caching)시켜 서비스합니다.
+
+
+### 8.4. 다중 스트림 환경에서의 GPU 인스턴스 공유
 * **근거**: 일반적인 구현체는 채널(카메라)마다 파이프라인 객체를 별도로 띄워 GPU 할당을 난발합니다. 그러나 이 방식은 Jetson Orin Nano와 같이 4GB/8GB의 VRAM 제한이 명확한 엣지 보드에서 즉시 GPU Out of Memory (OOM) 오류를 일으킵니다. 이를 방지하고자, 각 IP 카메라는 스레드를 통해 프레임 디코딩만 맡고, 실제 추론 단계에서는 단 하나의 `PersonDetector`와 `ReIDExtractor` 인스턴스를 공유하여 순차적으로 추론 연산을 진행하게 하여 VRAM 오버헤드를 물리적 최소 단위로 억제하였습니다.
 
-### 8.4. 최신 프레임 보존 Drop 전략 (Frame Drop Strategy)
+### 8.5. 최신 프레임 보존 Drop 전략 (Frame Drop Strategy)
 * **근거**: 비디오 추론에서 큐에 쌓인 모든 프레임을 무조건 다 처리하려고 고집하면, 일시적 연산 부하 발생 시 카메라의 실시간 화면보다 수초에서 수십 초 늦게 처리되는 **'지연 누적 현상'**이 일어납니다. 이는 실시간 감시 시스템에서 치명적인 결함입니다. 이를 타파하고자 프레임 큐의 크기를 극도로 짧게(예: 크기 1~2) 유지하고, 새로운 프레임이 올 때 큐가 차 있다면 기존 버퍼의 프레임을 버려버림으로써 언제나 엣지 연산 장치가 **'가장 최신의 실시간 프레임'**만을 처리하도록 강제했습니다.
 
-### 8.5. ONNX 및 TensorRT 가속 파이프라인 채택
+### 8.6. ONNX 및 TensorRT 가속 파이프라인 채택
 * **근거**: 엣지 하드웨어의 저사양 CPU 코어로 딥러닝 추론을 진행하면 실시간 추론(최소 15~30 FPS)이 불가능합니다. 이를 달성하고자 YOLOv8에는 FP16 기반 **TensorRT 가속**을 바인딩하고, OSNet 특징 추출기에는 최적의 CPU/GPU 하드웨어 레지스트리를 타는 **ONNX Runtime 가속**을 동시 적용해 추론 속도를 기존 PyTorch CPU 대비 최대 4~6배 이상 끌어올렸습니다.
+* **설치 요건**: 파이프라인이 정상적으로 ONNX 가속으로 동작하려면 시스템 가상환경에 `onnxruntime`(CPU 용) 또는 `onnxruntime-gpu`(Jetson/CUDA 용) 패키지가 필수적입니다. 패키지가 손상되었거나 유실된 경우 시스템은 안전하게 PyTorch 백엔드로 대체 구동(Fallback)되도록 설계되어 예외 복구력을 높였습니다.
 
 ---
 

@@ -34,6 +34,7 @@ def main():
     parser.add_argument("--db-host", type=str, default="localhost", help="Qdrant DB 호스트")
     parser.add_argument("--db-port", type=int, default=6333, help="Qdrant DB 포트")
     parser.add_argument("--tensorrt", action="store_true", help="TensorRT 엔진 사용 여부")
+    parser.add_argument("--no-onnx", action="store_false", dest="onnx", help="Re-ID ONNX Runtime 가속 비활성화")
     parser.add_argument("--display", action="store_true", help="화면 출력 여부 (UI가 있는 환경에서만 사용)")
     parser.add_argument("--server-url", type=str, default="http://localhost:8000", help="FastAPI 백엔드 서버 URL")
     args = parser.parse_args()
@@ -57,6 +58,7 @@ def main():
     collection_name = 'prod_reid_collection'
     config = {
         'use_tensorrt': args.tensorrt,
+        'use_onnx': args.onnx,
         'collection_name': collection_name,
         'send_interval_frames': 10
     }

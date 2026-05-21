@@ -71,13 +71,19 @@ class ReIDExtractor:
                 import os
                 try:
                     import onnxruntime as ort
-                    onnx_path = f"{self.model_name}.onnx"
+                    onnx_path = os.getenv("REID_MODEL_PATH", f"{self.model_name}.onnx")
                     
                     if not os.path.exists(onnx_path):
                         logger.info(
                             f"ONNX auto-export requested. Exporting model '{self.model_name}' to '{onnx_path}' "
                             f"(this might take several minutes)..."
                         )
+                        # 파일 저장 디렉토리 자동 생성
+                        dir_name = os.path.dirname(onnx_path)
+                        if dir_name and not os.path.exists(dir_name):
+                            os.makedirs(dir_name, exist_ok=True)
+                            logger.info(f"Created model storage directory: '{dir_name}'")
+                            
                         # FeatureExtractor 내부 PyTorch 모델 추출 및 평가 모드 전환
                         model = self.extractor.model
                         model.eval()
@@ -106,11 +112,11 @@ class ReIDExtractor:
                         logger.info(f"Loaded hardware-accelerated ONNX model from '{onnx_path}'")
                     else:
                         logger.warning("ONNX model file not found after export. Keeping PyTorch backend.")
-                except ImportError:
+                except ImportError as e:
                     logger.warning(
-                        "onnxruntime library is not installed. "
-                        "Please install 'onnxruntime' or 'onnxruntime-gpu' to leverage ONNX acceleration. "
-                        "Falling back to original PyTorch backend."
+                        f"onnxruntime library import failed ({e}). "
+                        f"Please install 'onnxruntime' or 'onnxruntime-gpu' to leverage ONNX acceleration. "
+                        f"Falling back to original PyTorch backend."
                     )
                 except Exception as onnx_err:
                     logger.warning(
