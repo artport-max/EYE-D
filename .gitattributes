@@ -1,0 +1,56 @@
+# ============================================================
+# EYE-D 라인엔딩 정책
+# Linux(팀장) + Windows(무림) 협업 환경에서 CRLF↔LF 충돌 방지.
+# 모든 텍스트 파일은 repo 에 LF 로 저장. Windows 전용 스크립트만 CRLF.
+# ============================================================
+
+# 기본: 모든 텍스트 파일은 LF
+* text=auto eol=lf
+
+# 소스코드 (명시적으로 LF)
+*.py     text eol=lf
+*.ts     text eol=lf
+*.tsx    text eol=lf
+*.js     text eol=lf
+*.jsx    text eol=lf
+*.json   text eol=lf
+*.yml    text eol=lf
+*.yaml   text eol=lf
+*.toml   text eol=lf
+*.md     text eol=lf
+*.sql    text eol=lf
+*.sh     text eol=lf
+*.html   text eol=lf
+*.css    text eol=lf
+*.env    text eol=lf
+*.ini    text eol=lf
+*.cfg    text eol=lf
+
+# Windows 전용 스크립트는 CRLF (반드시 Windows에서 실행되어야 하므로)
+*.bat    text eol=crlf
+*.cmd    text eol=crlf
+*.ps1    text eol=crlf
+
+# Jupyter 노트북은 JSON 이지만 줄바꿈에 민감 — LF
+*.ipynb  text eol=lf
+
+# 바이너리 (변환 금지)
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.ico    binary
+*.pdf    binary
+*.zip    binary
+*.tar    binary
+*.gz     binary
+*.onnx   binary
+*.pt     binary
+*.pth    binary
+*.engine binary
+*.mp4    binary
+*.mov    binary
+*.avi    binary
+*.woff   binary
+*.woff2  binary
+*.ttf    binary
