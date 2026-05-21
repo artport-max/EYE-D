@@ -10,6 +10,7 @@ class DBTester:
 
     def __init__(self, client=None):
         self.client = client
+        self.validated_collections = set()  # 검증된 컬렉션 이름을 캐싱하여 네트워크 반복 호출 방지
 
     def connect(self, host=None, port=None, prefer_grpc=False, **kwargs):
         host = host or os.getenv('QDRANT_HOST', 'localhost')
@@ -20,13 +21,17 @@ class DBTester:
     def collection_exists(self, collection_name):
         if self.client is None:
             raise RuntimeError('DB client is not connected')
+        # 캐싱된 컬렉션이 있다면 즉시 True 반환 (네트워크 호출 제거)
+        if collection_name in self.validated_collections:
+            return True
         try:
             self.client.get_collection(collection_name=collection_name)
+            self.validated_collections.add(collection_name)
             return True
         except Exception:
             return False
 
-    def validate_insert(self, collection_name, records, vector_size=128):
+    def validate_insert(self, collection_name, records, vector_size=512):
         if self.client is None:
             self.connect()
 
@@ -35,6 +40,8 @@ class DBTester:
                 collection_name=collection_name,
                 vectors_config=rest.VectorParams(size=vector_size, distance=rest.Distance.COSINE),
             )
+            # 신규 생성 성공 후 캐시에 추가
+            self.validated_collections.add(collection_name)
 
         points = []
         for idx, record in enumerate(records):
@@ -45,6 +52,7 @@ class DBTester:
 
         self.client.upsert(collection_name=collection_name, points=points)
         return True
+
 
     def validate_search(self, collection_name, query_vector, top_k=10):
         if self.client is None:
@@ -81,3 +89,17 @@ class DBTester:
         if self.client is None:
             self.connect()
         return self.collection_exists(collection_name)
+
+    def upsert(self, collection_name, records, vector_size=512):
+        """PipelineRunner 등에서 호출하는 표준 upsert 인터페이스.
+        내부적으로 validate_insert를 호출하여 데이터를 저장합니다.
+        """
+        return self.validate_insert(collection_name, records, vector_size=vector_size)
+
+
+    def search(self, collection_name, query_vector, top_k=10):
+        """PipelineRunner 등에서 호출하는 표준 search 인터페이스.
+        내부적으로 validate_search를 호출하여 데이터를 검색합니다.
+        """
+        return self.validate_search(collection_name, query_vector, top_k=top_k)
+

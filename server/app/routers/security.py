@@ -73,6 +73,16 @@ async def post_detection(payload: DetectionIn) -> DetectionOut:
 
     async with pool.acquire() as conn:
         async with conn.transaction():
+            # 0) 카메라 자동 등록 (없는 경우 외래 키 제약 조건 방지)
+            await conn.execute(
+                """
+                INSERT INTO cameras (camera_id, location)
+                VALUES ($1, 'Auto-Registered Edge Camera')
+                ON CONFLICT (camera_id) DO NOTHING
+                """,
+                payload.camera_id
+            )
+
             # 1) Re-ID 매칭
             global_id, sim, matched = await find_or_create_global_id(conn, emb_str)
 

@@ -56,7 +56,9 @@ class PipelineRunner:
         self.running = False
         self.frames_processed = 0
 
-        self.preprocessor = ImagePreprocessor(use_awb=True, use_blur=True)
+        use_awb = self.config.get('use_awb', False)
+        use_blur = self.config.get('use_blur', False)
+        self.preprocessor = ImagePreprocessor(use_awb=use_awb, use_blur=use_blur)
         # Null Object 패턴: None 대신 기본 Null 객체를 사용하여 None 체크 제거
         self.db_client = db_client if db_client is not None else NullDBClient()
         self.http_sender = http_sender if http_sender is not None else NullSender()
@@ -93,6 +95,7 @@ class PipelineRunner:
                 model_path=self.config.get('yolo_model', 'yolov8n.pt'),
                 conf_threshold=self.config.get('conf_threshold', 0.5),
                 use_tensorrt=self.config.get('use_tensorrt', False),
+                iou=self.config.get('yolo_iou', 0.7),
             )
             logger.info(f"Detector initialized (model={self.config.get('yolo_model', 'yolov8n.pt')})")
 
@@ -221,30 +224,33 @@ class PipelineRunner:
         if not reid_vectors:
             return
 
-        payload = {
-            'camera_id': camera_id,
-            'timestamp': time.time(),
-            'frame_index': self.frames_processed,
-            'tracks': [
-                {
-                    'track_id': v['track_id'],
-                    'vector': v['vector'],
-                    'confidence': v.get('confidence', 0.0),
-                    'bbox': v.get('bbox', []),
-                }
-                for v in reid_vectors
-            ],
-        }
+        from datetime import datetime
 
-        try:
-            status_code, _ = self.http_sender.post('/api/v1/vectors', payload)
-            if status_code not in (0, 200):
-                logger.warning(
-                    f'Server POST failed (status={status_code}): '
-                    f'{len(reid_vectors)} vector(s) for camera {camera_id}'
-                )
-        except Exception as e:
-            logger.warning(f'Server send error: {e}')
+        for v in reid_vectors:
+            # 서버 Pydantic Schema(DetectionIn)에 맞게 개별 데이터 페이로드 빌드
+            # timestamp는 ISO 8601 형식의 문자열로 변환하여 전송
+            timestamp_str = datetime.fromtimestamp(time.time()).isoformat()
+            
+            payload = {
+                'camera_id': camera_id,
+                'tracklet_id': str(v['track_id']),
+                'embedding_identity': [float(x) for x in v['vector']],
+                'timestamp': timestamp_str,
+                'bbox': [float(x) for x in v.get('bbox', [])],
+                'event_type': 'detection'
+            }
+
+            try:
+                # 서버 endpoint를 /api/v1/security/detections 로 변경
+                # 로컬 버퍼링 성공 시 202, 즉시 전송 성공 시 200이 반환되므로 허용 목록에 추가
+                status_code, _ = self.http_sender.post('/api/v1/security/detections', payload)
+                if status_code not in (0, 200, 201, 202):
+                    logger.warning(
+                        f'Server POST failed (status={status_code}): '
+                        f'track_id={v["track_id"]} for camera {camera_id}'
+                    )
+            except Exception as e:
+                logger.warning(f'Server send error for track {v["track_id"]}: {e}')
 
     # ------------------------------------------------------------------
     # 상태 조회

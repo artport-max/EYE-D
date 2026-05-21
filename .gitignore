@@ -229,3 +229,5 @@ data/ssf_originals/
 *.ssf
 *.scc
 *.scb
+# EYE-D Edge specific
+edge/qdrant_storage/
