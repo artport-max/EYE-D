@@ -380,7 +380,7 @@ docker run -d --name eyed-edge-service \
   --restart always \
   --network host \
   eyed-edge:latest \
-  python3 main.py --source "rtsp://<전송노드_IP>:8554/cam01" --camera-id CAM_01
+  python main.py --source "rtsp://<전송노드_IP>:8554/cam01" --camera-id CAM_01
 ```
 
 ##### 옵션 B: 호스트 화면 출력 연동 구동 (테스트/비주얼 모니터링 환경)
@@ -397,7 +397,7 @@ docker run -it --rm \
   -e DISPLAY=$DISPLAY \
   -v /tmp/.X11-unix:/tmp/.X11-unix:ro \
   eyed-edge:latest \
-  python3 main.py --source "rtsp://<전송노드_IP>:8554/cam01" --camera-id CAM_01 --display
+  python main.py --source "rtsp://<전송노드_IP>:8554/cam01" --camera-id CAM_01 --display
 ```
 
 ##### 옵션 C: 로컬 웹캠 장치(/dev/video0) 공유
@@ -410,7 +410,7 @@ docker run -it --rm \
   -e DISPLAY=$DISPLAY \
   -v /tmp/.X11-unix:/tmp/.X11-unix:ro \
   eyed-edge:latest \
-  python3 main.py --source 0 --camera-id CAM_01 --display
+  python main.py --source 0 --camera-id CAM_01 --display
 ```
 
 ### 4.3. 엣지 디바이스 프로비저닝 (환경 설정)
