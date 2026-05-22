@@ -359,8 +359,13 @@ CMD ["python3", "main.py", "--source", "0", "--camera-id", "CAM_01"]
 
 #### 4.2.2. 도커 이미지 빌드
 
+도커 이미지 빌드 시 필요한 의존성 파일(`requirements.txt`) 및 소스 코드 복사를 위해, 반드시 프로젝트 내 `edge/` 디렉토리로 이동한 뒤 빌드를 진행해야 합니다.
+
 ```bash
-# edge/ 디렉토리 기준 이미지 빌드
+# 1. 엣지 프로젝트 디렉토리로 이동
+cd edge
+
+# 2. 엣지 단독 이미지 빌드 실행
 docker build -t eyed-edge:latest -f Dockerfile.edge .
 ```
 

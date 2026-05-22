@@ -1,0 +1,22 @@
+# Base DL & CV for Edge
+torch>=2.0.0
+torchvision
+torchaudio
+ultralytics>=8.0.0
+opencv-python>=4.8.0
+numpy>=1.23.0
+
+# Tracking & Re-ID
+boxmot
+# torchreid는 공식 저장소(https://github.com/KaiyangZhou/deep-person-reid) 가이드를 통해 설치 권장
+
+# Vector DB Client (For testing DB connection)
+qdrant-client>=1.7.0
+
+# System Monitoring
+psutil>=5.9.0
+
+# ONNX Runtime Acceleration
+onnxruntime>=1.15.0
+onnx>=1.14.0
+onnxscript>=0.1.0
