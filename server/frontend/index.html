@@ -391,7 +391,7 @@ function connectWS() {
       camera_id: alert.camera_id,
       global_id: alert.global_id,
       event_type: alert.type,
-      similarity: null,
+      similarity: alert.similarity,
     });
     if (alert.type === 'intrusion') {
       document.body.classList.add('screen-flash');

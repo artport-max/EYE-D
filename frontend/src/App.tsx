@@ -34,12 +34,11 @@ import {
 import { cn } from '@/src/lib/utils.ts';
 import type { CameraConfig, ReidLog, SystemStats } from '@/src/types/index.ts';
 
-// Mock Data
 const MOCK_CAMERAS: CameraConfig[] = [
-  { id: 'cam-1', name: 'Main Entrance', status: 'online', fps: 30, resolution: '1920x1080', bitrate: '4.2 Mbps' },
-  { id: 'cam-2', name: 'Lobby South', status: 'online', fps: 28, resolution: '1920x1080', bitrate: '3.8 Mbps' },
-  { id: 'cam-3', name: 'Restricted Area', status: 'online', fps: 30, resolution: '1920x1080', bitrate: '4.5 Mbps' },
-  { id: 'cam-4', name: 'Parking Lot', status: 'online', fps: 25, resolution: '1920x1080', bitrate: '3.1 Mbps' },
+  { id: 'cam_0', name: 'Main Entrance', status: 'online', fps: 30, resolution: '1920x1080', bitrate: '4.2 Mbps' },
+  { id: 'cam_1', name: 'Lobby South', status: 'online', fps: 28, resolution: '1920x1080', bitrate: '3.8 Mbps' },
+  { id: 'cam_2', name: 'Restricted Area', status: 'online', fps: 30, resolution: '1920x1080', bitrate: '4.5 Mbps' },
+  { id: 'cam_3', name: 'Parking Lot', status: 'online', fps: 25, resolution: '1920x1080', bitrate: '3.1 Mbps' },
 ];
 
 const MOCK_STATS_DATA = [
@@ -53,12 +52,13 @@ const MOCK_STATS_DATA = [
   { time: '16:00', count: 52 },
 ];
 
-const MOCK_REID_LOGS: ReidLog[] = [
-  { id: '1', timestamp: '14:22:05', personId: 'PID-1024', fromCamera: 'Main Entrance', toCamera: 'Lobby South', confidence: 0.98, thumbnail: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop' },
-  { id: '2', timestamp: '14:22:12', personId: 'PID-0982', fromCamera: 'Lobby South', toCamera: 'Main Entrance', confidence: 0.94, thumbnail: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop' },
-  { id: '3', timestamp: '14:22:15', personId: 'PID-1105', fromCamera: 'Restricted Area', toCamera: 'Lobby South', confidence: 0.96, thumbnail: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&h=100&fit=crop' },
-  { id: '4', timestamp: '14:22:20', personId: 'PID-0871', fromCamera: 'Main Entrance', toCamera: 'Lobby South', confidence: 0.92, thumbnail: 'https://images.unsplash.com/photo-1573497019940-1c28c88b4f3e?w=100&h=100&fit=crop' },
-];
+const API_BASE = typeof window !== 'undefined'
+  ? (window.location.port === '3000' || window.location.port === '5173' ? 'http://localhost:8000/api/v1' : '/api/v1')
+  : '/api/v1';
+
+const WS_BASE = typeof window !== 'undefined'
+  ? (window.location.port === '3000' || window.location.port === '5173' ? 'ws://localhost:8000/api/v1' : `ws://${window.location.host}/api/v1`)
+  : 'ws://localhost:8000/api/v1';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<'dashboard' | 'history'>('dashboard');
@@ -71,11 +71,57 @@ export default function App() {
     gpuTemp: 54
   });
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [logs, setLogs] = useState<ReidLog[]>(MOCK_REID_LOGS);
+  const [logs, setLogs] = useState<ReidLog[]>([]);
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
+  const [todayStats, setTodayStats] = useState({
+    today_count: 0,
+    today_intrusions: 0,
+    active_now: 0
+  });
+
+  const fetchRecentLogs = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/security/detections/recent?limit=30`);
+      if (!res.ok) return;
+      const data = await res.json();
+      
+      const formattedLogs = data.map((d: any, idx: number, arr: any[]) => {
+        const prevD = arr.slice(idx + 1).find(x => x.global_id === d.global_id);
+        const fromCamera = prevD ? prevD.camera_id : 'Unknown';
+        return {
+          id: d.detection_id.toString(),
+          timestamp: new Date(d.detected_at).toLocaleTimeString([], { hour12: false }),
+          personId: `PID-${d.global_id}`,
+          fromCamera: fromCamera,
+          toCamera: d.camera_id,
+          confidence: d.similarity ?? 0.9,
+          thumbnail: `https://images.unsplash.com/photo-${d.global_id % 2 === 0 ? '1507003211169-0a1dd7228f2d' : '1494790108377-be9c29b29330'}?w=100&h=100&fit=crop`
+        };
+      });
+      setLogs(formattedLogs);
+    } catch (e) {
+      console.error("Failed to fetch recent logs:", e);
+    }
+  };
+
+  const fetchStats = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/security/stats/today`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setTodayStats(data);
+    } catch (e) {
+      console.error("Failed to fetch stats:", e);
+    }
+  };
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    
+    // 초기 데이터 로딩
+    fetchRecentLogs();
+    fetchStats();
+
     const statsTimer = setInterval(() => {
       setSystemStats(prev => ({
         ...prev,
@@ -86,23 +132,53 @@ export default function App() {
       }));
     }, 3000);
 
-    const logTimer = setInterval(() => {
-      const newLog: ReidLog = {
-        id: Math.random().toString(),
-        timestamp: new Date().toLocaleTimeString([], { hour12: false }),
-        personId: `PID-${Math.floor(800 + Math.random() * 400)}`,
-        fromCamera: MOCK_CAMERAS[Math.floor(Math.random() * 4)].name,
-        toCamera: MOCK_CAMERAS[Math.floor(Math.random() * 4)].name,
-        confidence: 0.85 + Math.random() * 0.14,
-        thumbnail: `https://images.unsplash.com/photo-${Math.random() > 0.5 ? '1507003211169-0a1dd7228f2d' : '1494790108377-be9c29b29330'}?w=100&h=100&fit=crop`
+    // WebSocket 알림 리스너 연결
+    let ws: WebSocket;
+    const connectWebSocket = () => {
+      ws = new WebSocket(`${WS_BASE}/security/ws/alerts`);
+      
+      ws.onmessage = (event) => {
+        try {
+          const alert = JSON.parse(event.data);
+          const newLog: ReidLog = {
+            id: alert.detection_id?.toString() || Math.random().toString(),
+            timestamp: new Date().toLocaleTimeString([], { hour12: false }),
+            personId: `PID-${alert.global_id}`,
+            fromCamera: 'Unknown',
+            toCamera: alert.camera_id || 'CAM_01',
+            confidence: alert.similarity ?? 0.95,
+            thumbnail: `https://images.unsplash.com/photo-${alert.global_id % 2 === 0 ? '1507003211169-0a1dd7228f2d' : '1494790108377-be9c29b29330'}?w=100&h=100&fit=crop`
+          };
+
+          setLogs(prev => {
+            const prevLog = prev.find(l => l.personId === newLog.personId);
+            if (prevLog) {
+              newLog.fromCamera = prevLog.toCamera;
+            }
+            return [newLog, ...prev.slice(0, 29)];
+          });
+
+          // 통계 실시간 업데이트
+          fetchStats();
+        } catch (err) {
+          console.error("WebSocket message parsing error:", err);
+        }
       };
-      setLogs(prev => [newLog, ...prev.slice(0, 9)]);
-    }, 5000);
+
+      ws.onclose = () => {
+        console.log("WebSocket disconnected. Retrying in 5 seconds...");
+        setTimeout(connectWebSocket, 5000);
+      };
+    };
+
+    connectWebSocket();
 
     return () => {
       clearInterval(timer);
       clearInterval(statsTimer);
-      clearInterval(logTimer);
+      if (ws) {
+        ws.close();
+      }
     };
   }, []);
 
@@ -112,14 +188,27 @@ export default function App() {
     setCurrentView('history');
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       const reader = new FileReader();
-      reader.onload = (event) => {
+      reader.onload = async (event) => {
         if (event.target?.result) {
-          // Simulate finding a matched ID from the uploaded image
-          const fakeMatchedId = `PID-${Math.floor(1000 + Math.random() * 9000)}`;
+          try {
+            // DB에 등록된 최근 인물 중 하나와 매치된 것처럼 시뮬레이션
+            const res = await fetch(`${API_BASE}/security/persons?limit=10`);
+            if (res.ok) {
+              const persons = await res.json();
+              if (persons && persons.length > 0) {
+                const matchedPerson = persons[Math.floor(Math.random() * persons.length)];
+                handleShowHistory(`PID-${matchedPerson.global_id}`, event.target.result as string);
+                return;
+              }
+            }
+          } catch (err) {
+            console.error("Image search match simulation error:", err);
+          }
+          const fakeMatchedId = `PID-${Math.floor(1 + Math.random() * 5)}`;
           handleShowHistory(fakeMatchedId, event.target.result as string);
         }
       };
@@ -266,8 +355,8 @@ export default function App() {
                       </ResponsiveContainer>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
-                      <StatCard label="Total Visitors" value="2,482" delta="+12%" />
-                      <StatCard label="Occupancy" value="84%" delta="-3%" inverse={true} />
+                      <StatCard label="Total Detections" value={todayStats.today_count.toLocaleString()} delta="" />
+                      <StatCard label="Intrusions" value={todayStats.today_intrusions.toLocaleString()} delta="" inverse={true} />
                     </div>
                   </div>
 
@@ -331,11 +420,49 @@ export default function App() {
 }
 
 const PersonHistory: React.FC<{ personId: string; targetImage: string | null; onBack: () => void }> = ({ personId, targetImage, onBack }) => {
-  const historyEvents = [
-    { id: 'ev-1', time: '14:22:05', camera: 'Lobby South', confidence: 0.98, img: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&h=600&fit=crop', videoColor: 'emerald' },
-    { id: 'ev-2', time: '14:15:30', camera: 'Main Entrance', confidence: 0.95, img: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&h=600&fit=crop', videoColor: 'blue' },
-    { id: 'ev-3', time: '14:05:12', camera: 'Parking Lot', confidence: 0.88, img: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&h=600&fit=crop', videoColor: 'yellow' },
-  ];
+  const [events, setEvents] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const globalId = parseInt(personId.replace('PID-', ''), 10);
+
+  useEffect(() => {
+    const fetchHistory = async () => {
+      if (isNaN(globalId)) {
+        setLoading(false);
+        return;
+      }
+      try {
+        setLoading(true);
+        const res = await fetch(`${API_BASE}/security/persons/${globalId}/track?limit=50`);
+        if (!res.ok) {
+          if (res.status === 404) {
+            setEvents([]);
+          } else {
+            throw new Error("Failed to load trajectory history");
+          }
+        } else {
+          const data = await res.json();
+          const formattedEvents = data.map((ev: any) => ({
+            id: ev.detection_id.toString(),
+            time: new Date(ev.detected_at).toLocaleTimeString([], { hour12: false }),
+            camera: ev.camera_id,
+            confidence: ev.similarity ?? 0.9,
+            img: `https://images.unsplash.com/photo-${globalId % 2 === 0 ? '1507003211169-0a1dd7228f2d' : '1494790108377-be9c29b29330'}?w=800&h=600&fit=crop`,
+            videoColor: ev.is_intrusion ? 'yellow' : 'emerald'
+          }));
+          setEvents(formattedEvents);
+        }
+      } catch (err: any) {
+        setError(err.message || "Error loading history");
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchHistory();
+  }, [globalId]);
+
+  const defaultImg = `https://images.unsplash.com/photo-${globalId % 2 === 0 ? '1507003211169-0a1dd7228f2d' : '1494790108377-be9c29b29330'}?w=800&h=600&fit=crop`;
 
   return (
     <motion.div 
@@ -348,7 +475,7 @@ const PersonHistory: React.FC<{ personId: string; targetImage: string | null; on
         {/* Left: Summary Profile */}
         <div className="w-80 flex flex-col space-y-6">
           <div className="relative rounded-2xl overflow-hidden border border-blue-500/30 bg-[#0d0d0f]">
-            <img src={targetImage || historyEvents[0].img} alt="Profile" className="w-full h-80 object-cover" />
+            <img src={targetImage || defaultImg} alt="Profile" className="w-full h-80 object-cover" />
             <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black to-transparent p-6">
               <div className="flex items-center justify-between">
                 <div>
@@ -369,7 +496,7 @@ const PersonHistory: React.FC<{ personId: string; targetImage: string | null; on
              </div>
              <div className="p-4 rounded-xl bg-[#0d0d0f] border border-[#1f1f23]">
                 <div className="text-[10px] font-bold text-gray-500 uppercase mb-1">Matches</div>
-                <div className="text-white font-bold">12 Count</div>
+                <div className="text-white font-bold">{events.length} Count</div>
              </div>
           </div>
 
@@ -385,93 +512,102 @@ const PersonHistory: React.FC<{ personId: string; targetImage: string | null; on
             </button>
           </div>
         </div>
+        
         {/* Right: Timeline */}
         <div className="flex-1 flex flex-col overflow-hidden bg-[#0d0d0f] rounded-3xl border border-[#1f1f23]">
           <div className="px-8 py-6 border-b border-[#1f1f23] flex items-center justify-between">
             <h2 className="text-lg font-bold tracking-tight">Movement Trajectory</h2>
             <div className="flex space-x-2">
               <span className="px-3 py-1 rounded-full bg-[#141416] border border-[#1f1f23] text-xs font-medium text-gray-400">History Log</span>
-              <span className="px-3 py-1 rounded-full bg-blue-600/10 border border-blue-600/20 text-xs font-medium text-blue-400">May 15, 2026</span>
+              <span className="px-3 py-1 rounded-full bg-blue-600/10 border border-blue-600/20 text-xs font-medium text-blue-400">Live Tracker</span>
             </div>
           </div>
           
           <div className="flex-1 p-8 overflow-y-auto scrollbar-thin scrollbar-thumb-[#1f1f23]">
-            <div className="relative pl-12 space-y-12">
-              {/* Timeline Line */}
-              <div className="absolute left-[23px] top-4 bottom-4 w-0.5 bg-[#1f1f23]" />
-              
-              {historyEvents.map((event, idx) => (
-                <div key={idx} className="relative">
-                  {/* Node */}
-                  <div className={cn(
-                    "absolute -left-[35px] top-1 w-6 h-6 rounded-full border-4 border-[#0d0d0f] transform transition-all duration-500 z-10",
-                    idx === 0 ? "bg-blue-600 scale-125" : "bg-gray-700"
-                  )} />
-                  
-                  <div className="flex flex-row gap-8 items-start group">
-                    <div className="w-32 flex-shrink-0 pt-1">
-                      <div className="text-xl font-mono font-bold text-white mb-1">{event.time}</div>
-                      <div className="text-xs font-bold text-gray-500 uppercase tracking-widest">{event.camera}</div>
-                    </div>
+            {loading ? (
+              <div className="h-full flex items-center justify-center text-gray-500 font-mono">LOADING TRAJECTORY DATA...</div>
+            ) : error ? (
+              <div className="h-full flex items-center justify-center text-red-500 font-mono">ERROR: {error}</div>
+            ) : events.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-gray-600 font-mono">NO TRAJECTORY RECORDED FOR THIS TARGET.</div>
+            ) : (
+              <div className="relative pl-12 space-y-12">
+                {/* Timeline Line */}
+                <div className="absolute left-[23px] top-4 bottom-4 w-0.5 bg-[#1f1f23]" />
+                
+                {events.map((event, idx) => (
+                  <div key={idx} className="relative">
+                    {/* Node */}
+                    <div className={cn(
+                      "absolute -left-[35px] top-1 w-6 h-6 rounded-full border-4 border-[#0d0d0f] transform transition-all duration-500 z-10",
+                      idx === 0 ? "bg-blue-600 scale-125" : "bg-gray-700"
+                    )} />
                     
-                    <div className="flex-1 p-6 rounded-2xl bg-[#141416] border border-[#1f1f23] group-hover:border-blue-500/30 transition-all">
-                      <div className="flex flex-row gap-8">
-                        {/* Inline Video Feed */}
-                        <div className="w-64 h-36 rounded-xl overflow-hidden border border-white/5 relative bg-black shrink-0">
-                           <div className="absolute inset-0 grayscale opacity-40" style={{ backgroundImage: `url(${event.img})`, backgroundSize: 'cover' }} />
-                           <div className="scanline" />
-                           <div className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-black to-transparent" />
-                           
-                           {/* Simulation Overlay */}
-                           <motion.div 
-                             animate={{ x: [10, 40, 20, 10], y: [10, 30, 10, 10] }}
-                             transition={{ duration: 5 + idx, repeat: Infinity, ease: 'linear' }}
-                             className={cn(
-                               "absolute border-2 w-16 h-28 z-10",
-                               event.videoColor === 'emerald' ? 'border-emerald-500/50' : 
-                               event.videoColor === 'blue' ? 'border-blue-500/50' : 'border-yellow-400/50'
-                             )}
-                           >
-                             <div className={cn(
-                               "text-[6px] font-black px-1 py-0.5 text-black",
-                               event.videoColor === 'emerald' ? 'bg-emerald-500' : 
-                               event.videoColor === 'blue' ? 'bg-blue-500' : 'bg-yellow-400'
-                             )}>
-                               {personId}
-                             </div>
-                           </motion.div>
+                    <div className="flex flex-row gap-8 items-start group">
+                      <div className="w-32 flex-shrink-0 pt-1">
+                        <div className="text-xl font-mono font-bold text-white mb-1">{event.time}</div>
+                        <div className="text-xs font-bold text-gray-500 uppercase tracking-widest">{event.camera}</div>
+                      </div>
+                      
+                      <div className="flex-1 p-6 rounded-2xl bg-[#141416] border border-[#1f1f23] group-hover:border-blue-500/30 transition-all">
+                        <div className="flex flex-row gap-8">
+                          {/* Inline Video Feed */}
+                          <div className="w-64 h-36 rounded-xl overflow-hidden border border-white/5 relative bg-black shrink-0">
+                             <div className="absolute inset-0 grayscale opacity-40" style={{ backgroundImage: `url(${event.img})`, backgroundSize: 'cover' }} />
+                             <div className="scanline" />
+                             <div className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-black to-transparent" />
+                             
+                             {/* Simulation Overlay */}
+                             <motion.div 
+                               animate={{ x: [10, 40, 20, 10], y: [10, 30, 10, 10] }}
+                               transition={{ duration: 5 + idx, repeat: Infinity, ease: 'linear' }}
+                               className={cn(
+                                 "absolute border-2 w-16 h-28 z-10",
+                                 event.videoColor === 'emerald' ? 'border-emerald-500/50' : 
+                                 event.videoColor === 'blue' ? 'border-blue-500/50' : 'border-yellow-400/50'
+                               )}
+                             >
+                               <div className={cn(
+                                 "text-[6px] font-black px-1 py-0.5 text-black",
+                                 event.videoColor === 'emerald' ? 'bg-emerald-500' : 
+                                 event.videoColor === 'blue' ? 'bg-blue-500' : 'bg-yellow-400'
+                               )}>
+                                 {personId}
+                               </div>
+                             </motion.div>
 
-                           <div className="absolute top-2 left-2 z-20 flex items-center space-x-1">
-                              <div className="w-1.5 h-1.5 rounded-full bg-red-600 animate-pulse" />
-                              <span className="text-[7px] font-black text-white uppercase tracking-tighter">Event Feed</span>
-                           </div>
-                        </div>
-
-                        <div className="flex-1 flex flex-col justify-center">
-                          <div className="flex items-center justify-between mb-4">
-                            <span className="px-2 py-0.5 rounded bg-blue-600/10 text-blue-400 text-[10px] font-black uppercase">Detection Captured</span>
-                            <span className="text-xs font-bold text-emerald-400">{(event.confidence * 100).toFixed(1)}% Re-ID Match</span>
-                          </div>
-                          <div className="text-sm text-gray-400 font-medium leading-relaxed">
-                            Verified detection in {event.camera} zone. Edge processing confirmed identity with high-confidence Re-ID biometric data.
-                          </div>
-                          <div className="mt-4 flex items-center space-x-4">
-                             <div className="flex flex-col">
-                                <span className="text-[9px] text-gray-600 font-bold uppercase tracking-widest">FPS</span>
-                                <span className="text-xs font-mono font-bold">29.9</span>
+                             <div className="absolute top-2 left-2 z-20 flex items-center space-x-1">
+                                <div className="w-1.5 h-1.5 rounded-full bg-red-600 animate-pulse" />
+                                <span className="text-[7px] font-black text-white uppercase tracking-tighter">Event Feed</span>
                              </div>
-                             <div className="flex flex-col">
-                                <span className="text-[9px] text-gray-600 font-bold uppercase tracking-widest">Metadata</span>
-                                <span className="text-xs font-mono font-bold">JSON Encoded</span>
+                          </div>
+
+                          <div className="flex-1 flex flex-col justify-center">
+                            <div className="flex items-center justify-between mb-4">
+                              <span className="px-2 py-0.5 rounded bg-blue-600/10 text-blue-400 text-[10px] font-black uppercase">Detection Captured</span>
+                              <span className="text-xs font-bold text-emerald-400">{(event.confidence * 100).toFixed(1)}% Re-ID Match</span>
+                            </div>
+                            <div className="text-sm text-gray-400 font-medium leading-relaxed">
+                              Verified detection in {event.camera} zone. Edge processing confirmed identity with high-confidence Re-ID biometric data.
+                            </div>
+                            <div className="mt-4 flex items-center space-x-4">
+                               <div className="flex flex-col">
+                                  <span className="text-[9px] text-gray-600 font-bold uppercase tracking-widest">FPS</span>
+                                  <span className="text-xs font-mono font-bold">29.9</span>
+                               </div>
+                               <div className="flex flex-col">
+                                  <span className="text-[9px] text-gray-600 font-bold uppercase tracking-widest">Metadata</span>
+                                  <span className="text-xs font-mono font-bold">JSON Encoded</span>
+                                </div>
                              </div>
                           </div>
                         </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

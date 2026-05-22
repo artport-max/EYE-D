@@ -30,34 +30,39 @@ async def _broadcast(msg: dict) -> None:
             _alert_clients.remove(d)
 
 
-async def broadcast_intrusion(detection_id: int, global_id: int, camera_id: str):
+async def broadcast_intrusion(detection_id: int, global_id: int, camera_id: str, similarity: float | None = None):
     """침입 이벤트 — 기존 클라이언트 호환 형식 그대로."""
     await _broadcast({
         "type": "intrusion",
         "detection_id": detection_id,
         "global_id": global_id,
         "camera_id": camera_id,
+        "similarity": similarity,
     })
 
 
 async def broadcast_vip_visit(global_id: int, camera_id: str,
-                              display_name: str | None = None):
+                              display_name: str | None = None,
+                              similarity: float | None = None):
     """VIP 방문 알림 — 2026-05-19 신규 타입."""
     await _broadcast({
         "type": "vip_visit",
         "global_id": global_id,
         "camera_id": camera_id,
         "display_name": display_name,
+        "similarity": similarity,
     })
 
 
-async def broadcast_regular_visit(global_id: int, camera_id: str, visit_count: int):
+async def broadcast_regular_visit(global_id: int, camera_id: str, visit_count: int,
+                                  similarity: float | None = None):
     """단골 승격(또는 단골 재방문) 알림 — 2026-05-19 신규 타입."""
     await _broadcast({
         "type": "regular_visit",
         "global_id": global_id,
         "camera_id": camera_id,
         "visit_count": visit_count,
+        "similarity": similarity,
     })
 
 
@@ -91,15 +96,15 @@ async def post_detection(payload: DetectionIn) -> DetectionOut:
                 """
                 INSERT INTO detections
                   (camera_id, tracklet_id, global_id, embedding_identity,
-                   bbox, detected_at, is_intrusion,
+                   bbox, detected_at, is_intrusion, similarity,
                    pose_keypoints, action_label, dwell_seconds,
                    appearance_attrs, scene_context)
-                VALUES ($1, $2, $3, $4::vector, $5, $6, $7, $8, $9, $10, $11, $12)
+                VALUES ($1, $2, $3, $4::vector, $5, $6, $7, $8, $9, $10, $11, $12, $13)
                 RETURNING detection_id
                 """,
                 payload.camera_id, payload.tracklet_id, global_id,
                 emb_str, json.dumps(payload.bbox), payload.timestamp,
-                is_intrusion,
+                is_intrusion, sim,
                 json.dumps(payload.pose_keypoints) if payload.pose_keypoints else None,
                 payload.action_label,
                 payload.dwell_seconds,
@@ -135,6 +140,7 @@ async def post_detection(payload: DetectionIn) -> DetectionOut:
             detection_id=row["detection_id"],
             global_id=global_id,
             camera_id=payload.camera_id,
+            similarity=sim,
         )
     if classification is not None:
         if classification.is_vip:
@@ -142,6 +148,7 @@ async def post_detection(payload: DetectionIn) -> DetectionOut:
                 global_id=global_id,
                 camera_id=payload.camera_id,
                 display_name=display_name,
+                similarity=sim,
             )
         elif classification.tier_changed and classification.customer_tier == "regular":
             # 단골 *승격* 순간에만 알림 (매번 X)
@@ -149,6 +156,7 @@ async def post_detection(payload: DetectionIn) -> DetectionOut:
                 global_id=global_id,
                 camera_id=payload.camera_id,
                 visit_count=classification.visit_count,
+                similarity=sim,
             )
 
     cls_tag = (f"tier={classification.customer_tier} "
@@ -176,7 +184,7 @@ async def get_person_track(
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
-            SELECT detection_id, camera_id, detected_at, bbox, is_intrusion
+            SELECT detection_id, camera_id, detected_at, bbox, is_intrusion, similarity
             FROM detections
             WHERE global_id = $1
             ORDER BY detected_at ASC
@@ -232,7 +240,7 @@ async def get_recent_detections(limit: int = Query(default=50, le=200)):
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT detection_id, camera_id, global_id, detected_at,
-                   is_intrusion, tracklet_id
+                   is_intrusion, tracklet_id, similarity
             FROM detections
             ORDER BY detected_at DESC
             LIMIT $1
