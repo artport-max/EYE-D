@@ -30,6 +30,18 @@ async def _broadcast(msg: dict) -> None:
             _alert_clients.remove(d)
 
 
+async def broadcast_detection(detection_id: int, global_id: int, camera_id: str, similarity: float | None = None, is_intrusion: bool = False):
+    """일반 감지 이벤트 알림 — 실시간 대시보드 로그 갱신용"""
+    await _broadcast({
+        "type": "detection",
+        "detection_id": detection_id,
+        "global_id": global_id,
+        "camera_id": camera_id,
+        "similarity": similarity,
+        "is_intrusion": is_intrusion,
+    })
+
+
 async def broadcast_intrusion(detection_id: int, global_id: int, camera_id: str, similarity: float | None = None):
     """침입 이벤트 — 기존 클라이언트 호환 형식 그대로."""
     await _broadcast({
@@ -135,6 +147,15 @@ async def post_detection(payload: DetectionIn) -> DetectionOut:
                 print(f"[WARN] classify_and_record failed: {type(e).__name__}: {e}")
 
     # 4) 알림 분기 (트랜잭션 밖에서 발송)
+    # 실시간 UI 로그 피드 갱신을 위해 모든 감지 이벤트를 웹소켓 브로드캐스트
+    await broadcast_detection(
+        detection_id=row["detection_id"],
+        global_id=global_id,
+        camera_id=payload.camera_id,
+        similarity=sim,
+        is_intrusion=is_intrusion,
+    )
+
     if is_intrusion:
         await broadcast_intrusion(
             detection_id=row["detection_id"],
