@@ -23,10 +23,12 @@
   * [3.3. 모니터링 단축키 & 제어](#33-모니터링-단축키-제어)
   * [3.4. Qdrant 수집 데이터 조회 및 확인 방법](#34-qdrant-수집-데이터-조회-및-확인-방법)
   * [3.5. 실제 백엔드 서버(FastAPI) 전송 검증 방법](#35-실제-백엔드-서버fastapi-전송-검증-방법)
+  * [3.6. 검증 전용 드라이런 모드 (Dry-run)](#36-검증-전용-드라이런-모드-dry-run)
 * [4. 실기기(Jetson) 배포 및 운영 프로세스 (Production Deployment)](#4-실기기jetson-배포-및-운영-프로세스-production-deployment)
   * [4.1. 모델 하드웨어 가속 최적화 (TensorRT 변환)](#41-모델-하드웨어-가속-최적화-tensorrt-변환)
-  * [4.2. 컨테이너 기반 패키징 (Dockerization)](#42-컨테이너-기반-패키징-dockerization)
+  * [4.2. 컨테이너 기반 패키징 및 테스트 (Dockerization)](#42-컨테이너-기반-패키징-및-테스트-dockerization)
   * [4.3. 엣지 디바이스 프로비저닝 (환경 설정)](#43-엣지-디바이스-프로비저닝-환경-설정)
+    * [4.3.1. 현재 JetPack 버전 확인 방법](#431-현재-jetpack-버전-확인-방법)
   * [4.4. 무중단 운영 및 업데이트 관리](#44-무중단-운영-및-업데이트-관리)
   * [4.5. 원격 모니터링 및 장애 감지](#45-원격-모니터링-및-장애-감지)
 * [5. RTSP 다채널 스트리밍 모의 테스트 (Mediamtx + FFmpeg)](#5-rtsp-다채널-스트리밍-모의-테스트-mediamtx--ffmpeg)
@@ -292,6 +294,20 @@ python tools/test_transmission.py
 python main.py --source ../data/16300000.avi --camera-id CAM_01 --display --server-url http://localhost:8000
 ```
 
+### 3.6. 검증 전용 드라이런 모드 (Dry-run)
+
+백엔드 서버나 Qdrant DB를 실행하기 어려운 제한적인 로컬 개발 환경에서 단순히 **모델 추론 및 Re-ID 특징 벡터 추출 연산 자체의 무결성과 하드웨어 가속 성능(FPS)만 측정/검증**하고자 할 때 유용합니다.
+
+`--dry-run` 플래그를 추가하여 기동하면 다음의 후속 동작들이 우회(skip)됩니다.
+- Qdrant DB 연결 대기 및 데이터 적재 생략
+- SQLite 캐시 파일 생성 및 백엔드 서버 네트워크 전송 생략
+- 분석 엔진(`AnalyticsEngine`) 출입 카운트 처리 생략
+
+```bash
+# 엣지 단독 추론/추출 속도 검증용 드라이런 구동 예시
+python main.py --source ../data/16300000.avi --camera-id CAM_01 --display --dry-run
+```
+
 ---
 
 ## 4. 실기기(Jetson) 배포 및 운영 프로세스 (Production Deployment)
@@ -303,20 +319,119 @@ Jetson의 GPU 하드웨어를 극대화하기 위해 PyTorch 모델(`.pt`)을 Te
 * **프로세스**: PyTorch 모델 ➔ ONNX 포맷 변환 ➔ TensorRT 컴파일 (FP16 혹은 INT8 양자화 적용)
 * **기동 옵션**: 컴파일이 완료되면 `main.py` 기동 시 `--tensorrt` 플래그를 활성화하여 하드웨어 가속을 켭니다.
 
-### 4.2. 컨테이너 기반 패키징 (Dockerization)
-NVIDIA JetPack 전용 베이스 이미지를 활용하여 의존성 충돌을 없애고 도커 이미지화합니다.
-* **Dockerfile 예시**:
-  ```dockerfile
-  FROM nvcr.io/nvidia/l4t-pytorch:r35.2.1-pth2.0-py3
-  WORKDIR /app
-  COPY requirements.txt .
-  RUN pip install -r requirements.txt
-  COPY edge/ /app
-  CMD ["python", "main.py", "--source", "rtsp://...", "--camera-id", "CAM_01", "--tensorrt"]
-  ```
+### 4.2. 컨테이너 기반 패키징 및 테스트 (Dockerization)
+
+Jetson 보드 내 가상 환경 빌드 충돌 및 드라이버 의존성 복잡성을 방지하기 위해 **NVIDIA 공식 L4T PyTorch 베이스 이미지**를 바탕으로 도커 이미지 빌드 및 컨테이너 테스트를 수행하는 표준 가이드입니다.
+
+#### 4.2.1. Dockerfile 작성
+
+프로젝트 `edge/` 디렉토리에 아래와 같이 `Dockerfile.edge`를 작성합니다. (사용하시는 JetPack 버전에 맞춰 적합한 L4T PyTorch 버전을 태그로 지정해야 합니다. 예: JetPack 5.1.x ➔ `r35.2.1-pth2.0-py3`)
+
+```dockerfile
+# 1. NVIDIA L4T PyTorch 공식 이미지 사용
+FROM nvcr.io/nvidia/l4t-pytorch:r35.2.1-pth2.0-py3
+
+WORKDIR /app
+
+# 2. 시스템 필수 의존성 및 이미지 라이브러리 설치
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3-pip \
+    python3-setuptools \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# 3. 파이썬 요구 라이브러리 복사 및 설치
+COPY requirements.txt .
+RUN pip3 install --no-cache-dir -r requirements.txt
+
+# 4. 소스 코드 복사
+COPY . .
+
+# 5. 실행 기본 명령어 지정
+CMD ["python3", "main.py", "--source", "0", "--camera-id", "CAM_01"]
+```
+
+#### 4.2.2. 도커 이미지 빌드
+
+```bash
+# edge/ 디렉토리 기준 이미지 빌드
+docker build -t eyed-edge:latest -f Dockerfile.edge .
+```
+
+#### 4.2.3. Jetson 보드에서 컨테이너 실행 (GPU 가속 활성화)
+
+Jetson 장비에서 GPU 및 CUDA 하드웨어 가속을 정상 연동하기 위해 반드시 `--runtime nvidia` 또는 `--gpus all` 옵션을 인자로 주어야 합니다.
+
+##### 옵션 A: CLI 기반 백그라운드 구동 (실제 운영 환경)
+```bash
+docker run -d --name eyed-edge-service \
+  --runtime nvidia \
+  --restart always \
+  --network host \
+  eyed-edge:latest \
+  python3 main.py --source "rtsp://<전송노드_IP>:8554/cam01" --camera-id CAM_01
+```
+
+##### 옵션 B: 호스트 화면 출력 연동 구동 (테스트/비주얼 모니터링 환경)
+도커 내부에서 `--display` 옵션을 켜서 모니터링 UI 창을 호스트 화면에 투사하려면 아래와 같이 **X11 소켓 바인딩** 및 GUI 접근 권한 처리가 필요합니다.
+
+```bash
+# 1. 호스트 시스템에서 로컬 도커 컨테이너의 X11 화면 표시 권한 허용
+xhost +local:docker
+
+# 2. X11 소켓 공유 및 환경변수 주입하여 컨테이너 실행
+docker run -it --rm \
+  --runtime nvidia \
+  --network host \
+  -e DISPLAY=$DISPLAY \
+  -v /tmp/.X11-unix:/tmp/.X11-unix:ro \
+  eyed-edge:latest \
+  python3 main.py --source "rtsp://<전송노드_IP>:8554/cam01" --camera-id CAM_01 --display
+```
+
+##### 옵션 C: 로컬 웹캠 장치(/dev/video0) 공유
+USB 또는 CSI 내장 카메라 하드웨어를 직접 컨테이너로 전달받아 구동할 때는 `--device` 인자로 장치 노드를 바인딩합니다.
+
+```bash
+docker run -it --rm \
+  --runtime nvidia \
+  --device /dev/video0:/dev/video0 \
+  -e DISPLAY=$DISPLAY \
+  -v /tmp/.X11-unix:/tmp/.X11-unix:ro \
+  eyed-edge:latest \
+  python3 main.py --source 0 --camera-id CAM_01 --display
+```
 
 ### 4.3. 엣지 디바이스 프로비저닝 (환경 설정)
+
 새 Jetson 장비에 리눅스 커널 및 가속 런타임을 연동합니다.
+
+#### 4.3.1. 현재 JetPack 버전 확인 방법
+
+NVIDIA L4T PyTorch 베이스 이미지 태그를 선정하기 전에, 호스트 Jetson 기기에 설치된 정확한 JetPack 버전을 확인해야 합니다.
+
+##### 방법 A: apt 패키지 정보 조회
+```bash
+apt-cache show nvidia-jetpack
+```
+*(출력 중 `Version: 5.1.2-b104` 형식을 통해 버전 확인 가능)*
+
+##### 방법 B: jtop (Jetson Stats) 도구 활용 (권장)
+```bash
+sudo pip3 install jetson-stats
+jtop
+```
+*(`7. INFO` 탭에서 JetPack, CUDA, TensorRT 등의 정확한 버전 스택을 한눈에 조회할 수 있습니다.)*
+
+##### 방법 C: L4T 릴리즈 파일 직접 확인
+```bash
+cat /etc/nv_tegra_release
+```
+*(출력 결과 중 `R35 (release), REVISION: 2.1` 등은 L4T R35.2.1 버전을 뜻하며, 이는 JetPack 5.1 버전에 상응합니다.)*
+
+#### 4.3.2. 의존성 소프트웨어 설치 및 확인
+
 1. **NVIDIA JetPack SDK 설치**: OS(Ubuntu L4T), CUDA, TensorRT 등 설치.
 2. **NVIDIA Container Toolkit 설치**: 도커 컨테이너 내부에서 GPU 장치 접근 권한을 획득합니다.
    ```bash

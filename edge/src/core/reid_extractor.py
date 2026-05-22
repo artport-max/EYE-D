@@ -180,12 +180,17 @@ class ReIDExtractor:
             if self.preprocessor is not None:
                 roi = self.preprocessor.enhance_roi(roi)
 
+            # BGR -> RGB 변환 및 PIL Image 변환 (torchreid FeatureExtractor/preprocess 공통 호환성 확보)
+            from PIL import Image
+            roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
+            pil_img = Image.fromarray(roi_rgb)
+
             try:
                 # ONNX 가속 추론 경로
                 if self.use_onnx and self.ort_session is not None:
                     # PyTorch FeatureExtractor의 전처리 파이프라인을 그대로 사용하여 데이터 정규화 일관성 확보
                     # self.extractor.preprocess는 [C, H, W] 텐서 반환
-                    tensor = self.extractor.preprocess(roi)
+                    tensor = self.extractor.preprocess(pil_img)
                     input_data = tensor.unsqueeze(0).cpu().numpy()  # [1, C, H, W]
                     
                     ort_inputs = {self.ort_session.get_inputs()[0].name: input_data}
@@ -193,12 +198,8 @@ class ReIDExtractor:
                     vector = features[0].tolist()
                 else:
                     # 기존 PyTorch 추론 경로
-                    # 노트북 코드 규격 준수: (256, 128) 리사이즈 (가로 256, 세로 128)
-                    # torchreid FeatureExtractor 입력에 적절하게 크기 정규화 수행
-                    roi_resized = cv2.resize(roi, (256, 128))
-
-                    # 특징 추출 수행
-                    features = self.extractor(roi_resized)
+                    # FeatureExtractor는 PIL Image 리스트를 직접 입력받아 자체 전처리 및 추론을 수행함
+                    features = self.extractor([pil_img])
                     
                     # 텐서로부터 피처 벡터를 numpy를 거쳐 파이썬 표준 float 리스트로 가공
                     vector = features[0].cpu().numpy().tolist()

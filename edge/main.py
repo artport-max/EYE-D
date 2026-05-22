@@ -37,20 +37,25 @@ def main():
     parser.add_argument("--no-onnx", action="store_false", dest="onnx", help="Re-ID ONNX Runtime 가속 비활성화")
     parser.add_argument("--display", action="store_true", help="화면 출력 여부 (UI가 있는 환경에서만 사용)")
     parser.add_argument("--server-url", type=str, default="http://localhost:8000", help="FastAPI 백엔드 서버 URL")
+    parser.add_argument("--dry-run", action="store_true", help="Re-ID 벡터 생성까지만 수행하고 DB 저장 및 외부 서버 전송을 생략 (검증용)")
     args = parser.parse_args()
 
     # 종료 시그널 등록 (Ctrl+C 등)
     signal.signal(signal.SIGINT, signal_handler)
 
     # 1. 인프라 연결 (DB 및 모니터링)
-    logger.info(f"DB 연결 시도: {args.db_host}:{args.db_port}")
-    db_client = DBTester()
-    try:
-        db_client.connect(host=args.db_host, port=args.db_port)
-        logger.info("Qdrant DB 연결 성공")
-    except Exception as e:
-        logger.warning(f"DB 연결 실패 (로컬 모드로 진행할 수 있습니다): {e}")
-        db_client = None
+    db_client = None
+    if not args.dry_run:
+        logger.info(f"DB 연결 시도: {args.db_host}:{args.db_port}")
+        db_client = DBTester()
+        try:
+            db_client.connect(host=args.db_host, port=args.db_port)
+            logger.info("Qdrant DB 연결 성공")
+        except Exception as e:
+            logger.warning(f"DB 연결 실패 (로컬 모드로 진행할 수 있습니다): {e}")
+            db_client = None
+    else:
+        logger.info("Dry-run 모드 활성화: Qdrant DB 연결을 생략합니다.")
 
     monitor = MonitoringAgent()
     
@@ -60,12 +65,17 @@ def main():
         'use_tensorrt': args.tensorrt,
         'use_onnx': args.onnx,
         'collection_name': collection_name,
-        'send_interval_frames': 10
+        'send_interval_frames': 10,
+        'dry_run': args.dry_run
     }
     
     # 백엔드 서버 전송용 HTTP 클라이언트 초기화 (복원력 탑재)
-    logger.info(f"서버 전송 클라이언트 초기화: {args.server_url}")
-    http_sender = ResilientServerSender(base_url=args.server_url, db_path="edge_resilience_buffer.db")
+    http_sender = None
+    if not args.dry_run:
+        logger.info(f"서버 전송 클라이언트 초기화: {args.server_url}")
+        http_sender = ResilientServerSender(base_url=args.server_url, db_path="edge_resilience_buffer.db")
+    else:
+        logger.info("Dry-run 모드 활성화: 서버 전송 클라이언트 초기화를 생략합니다.")
     
     runner = PipelineRunner(config=config, db_client=db_client, http_sender=http_sender)
     analytics = AnalyticsEngine(db_client=db_client, collection_name=collection_name)
@@ -96,7 +106,7 @@ def main():
         result = runner.process_frame(frame, camera_id=args.camera_id)
         
         # 분석 엔진 업데이트 (출입 카운트, 체류 시간 계산)
-        if result and result.get('tracks'):
+        if not args.dry_run and result and result.get('tracks'):
             analytics.update_tracks(result['tracks'], camera_id=args.camera_id)
         
         # 주기적 상태 모니터링 (5초마다 로그 출력)

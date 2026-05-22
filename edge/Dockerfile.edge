@@ -1,0 +1,22 @@
+# 1. NVIDIA L4T PyTorch 공식 이미지 사용
+FROM nvcr.io/nvidia/l4t-pytorch:r35.2.1-pth2.0-py3
+
+WORKDIR /app
+
+# 2. 시스템 필수 의존성 및 이미지 라이브러리 설치
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3-pip \
+    python3-setuptools \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# 3. 파이썬 요구 라이브러리 복사 및 설치
+COPY requirements.txt .
+RUN pip3 install --no-cache-dir -r requirements.txt
+
+# 4. 소스 코드 복사
+COPY . .
+
+# 5. 실행 기본 명령어 지정
+CMD ["python3", "main.py", "--source", "0", "--camera-id", "CAM_01"]

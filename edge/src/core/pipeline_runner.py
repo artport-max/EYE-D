@@ -57,6 +57,7 @@ class PipelineRunner:
         self.running = False
         self.frames_processed = 0
         self._last_camera_id = "cam_0"
+        self.dry_run = self.config.get('dry_run', False)
 
         use_awb = self.config.get('use_awb', False)
         use_blur = self.config.get('use_blur', False)
@@ -220,6 +221,10 @@ class PipelineRunner:
 
         db_client가 NullDBClient인 경우 저장을 건너뜁니다(로그만 출력).
         """
+        if self.dry_run:
+            logger.debug("Dry-run mode active. Skipping Vector DB save.")
+            return
+
         if not reid_vectors:
             return
 
@@ -248,6 +253,10 @@ class PipelineRunner:
         http_sender가 NullSender인 경우 전송을 건너뜁니다(로그만 출력).
         Phase 3에서 ServerSender를 주입하면 실제 전송이 동작합니다.
         """
+        if self.dry_run:
+            logger.debug("Dry-run mode active. Skipping server transmission.")
+            return
+
         if not reid_vectors:
             return
 
