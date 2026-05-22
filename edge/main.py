@@ -7,7 +7,7 @@ import signal
 import os
 
 # Docker 내 RTSP 스트림 UDP 패킷 유실 방지를 위한 TCP 강제 옵션 설정
-os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
+# os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
 
 # headless 환경 대비 cv2 highgui 함수 모킹 패치
 def _mock_imshow(*args, **kwargs):
