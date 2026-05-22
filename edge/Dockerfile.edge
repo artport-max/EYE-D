@@ -1,27 +1,17 @@
 # 1. NVIDIA PyTorch 공식 이미지 사용 (JetPack 6.x / L4T R36.x 지원 전용 igpu 이미지)
 FROM nvcr.io/nvidia/pytorch:24.03-py3-igpu
 
-# 대화형 타임존(tzdata) 프롬프트 대기 방지 설정
-ENV DEBIAN_FRONTEND=noninteractive
-
 WORKDIR /app
 
-# 2. 시스템 필수 의존성 및 공식 안정 OpenCV, Git 패키지 설치
-# (torchreid 소스 설치를 위해 git을 함께 설치합니다)
+# 2. 시스템 필수 의존성 및 이미지 라이브러리 설치 (pip는 베이스 이미지 내장 사용)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1-mesa-glx \
     libglib2.0-0 \
-    python3-opencv \
-    git \
     && rm -rf /var/lib/apt/lists/*
 
 # 3. 파이썬 요구 라이브러리 복사 및 설치
 COPY requirements.txt .
-# 의존성 패키지(ultralytics, boxmot 등)가 자동으로 끌고 들어오는 pip 버전 opencv를 제거하고
-# Re-ID의 핵심인 torchreid 라이브러리를 의존성 충돌 없이(--no-deps) 설치합니다.
-RUN pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir --no-deps git+https://github.com/KaiyangZhou/deep-person-reid.git && \
-    pip uninstall -y opencv-python opencv-python-headless opencv-contrib-python opencv-contrib-python-headless || true
+RUN pip install --no-cache-dir -r requirements.txt
 
 # 4. 소스 코드 복사
 COPY . .
