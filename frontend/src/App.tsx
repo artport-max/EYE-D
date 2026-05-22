@@ -53,11 +53,11 @@ const MOCK_STATS_DATA = [
 ];
 
 const API_BASE = typeof window !== 'undefined'
-  ? (window.location.port === '3000' || window.location.port === '5173' ? 'http://localhost:8000/api/v1' : '/api/v1')
+  ? (window.location.port === '3000' || window.location.port === '5173' ? `http://${window.location.hostname}:8000/api/v1` : '/api/v1')
   : '/api/v1';
 
 const WS_BASE = typeof window !== 'undefined'
-  ? (window.location.port === '3000' || window.location.port === '5173' ? 'ws://localhost:8000/api/v1' : `ws://${window.location.host}/api/v1`)
+  ? (window.location.port === '3000' || window.location.port === '5173' ? `ws://${window.location.hostname}:8000/api/v1` : `ws://${window.location.host}/api/v1`)
   : 'ws://localhost:8000/api/v1';
 
 export default function App() {

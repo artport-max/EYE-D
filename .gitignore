@@ -231,3 +231,8 @@ data/ssf_originals/
 *.scb
 # EYE-D Edge specific
 edge/qdrant_storage/
+
+# EYE-D Server specific
+server/data/thumbnails/
+server/uvicorn.log
+server/tools/server.pid

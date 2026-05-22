@@ -88,11 +88,57 @@ EYE-D/
 
 ---
 
+### 0. 사전 준비 (Docker 및 Docker Compose 설치)
+
+데이터베이스 기동을 위해 Docker와 Docker Compose가 필요합니다. 설치되어 있지 않다면 아래 가이드를 참고하여 설치를 진행해 주세요.
+
+#### Linux (Ubuntu) 기준 Docker 설치 방법
+```bash
+# 1. Docker 공식 GPG 키 추가 및 저장소 등록
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+# 2. 패키지 업데이트 및 Docker / Docker Compose 설치
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+# 3. sudo 없이 docker 명령어를 사용할 수 있도록 권한 부여 (설정 후 로그아웃 후 다시 로그인 혹은 터미널 재실행 필요)
+sudo usermod -aG docker $USER
+newgrp docker
+```
+
+---
+
 ### 1. 백엔드 중앙 관리 서버 (Central Server) 실행 방법
 
 중앙 서버는 PostgreSQL (pgvector 포함) 데이터베이스와 FastAPI API 웹 서버로 구동됩니다.
 
-#### 1.1. 데이터베이스 기동 (Docker Compose)
+#### 1.1. 자동 관리 스크립트 사용 (권장 - Linux/macOS)
+데이터베이스 및 가상환경 활성화, 백엔드 서버 구동(외부 접속용 `0.0.0.0` 바인딩) 및 중지/모니터링을 한번에 처리해 주는 통합 관리 스크립트가 준비되어 있습니다.
+```bash
+cd server
+
+# 구동
+./tools/manage_server.sh start
+
+# 로그 실시간 모니터링
+./tools/manage_server.sh logs -f
+
+# 중지
+./tools/manage_server.sh stop
+```
+
+#### 1.2. 수동 기동 방법
+
+##### 데이터베이스 기동 (Docker Compose)
 `server/` 디렉토리로 이동하여 환경 설정 템플릿을 활성화하고 도커 컴포즈로 DB 컨테이너를 올립니다.
 
 * **Linux / macOS (Bash) 및 Windows (Git Bash):**
@@ -116,7 +162,8 @@ EYE-D/
 
 * **Linux / macOS (Bash):**
   ```bash
-  cat app/db/migrations/2026-05-19_retail.sql | docker exec -i eyed-postgres psql -U eyed -d eyed
+  # docker 권한 에러(Permission Denied) 발생 시 docker 앞에 sudo를 붙여서 실행해 주세요.
+  cat app/db/migrations/2026-05-19_retail.sql | sudo docker exec -i eyed-postgres psql -U eyed -d eyed
   ```
 
 * **Windows (PowerShell):**
@@ -125,8 +172,21 @@ EYE-D/
   ```
 
 #### 1.3. FastAPI 서버 가동
-파이썬 가상환경을 생성하고 의존 패키지를 받아 가동시킵니다.
+파이썬 가상환경(venv 또는 Conda)을 생성하고 의존 패키지를 받아 가동시킵니다.
 
+##### 방법 A: Conda 가상환경 사용 (권장)
+* **Linux / macOS / Windows 공통:**
+  ```bash
+  # 가상환경 생성 및 활성화
+  conda create -n eyed-server python=3.10 -y
+  conda activate eyed-server
+
+  # 의존성 패키지 설치 및 실행
+  pip install -r requirements.txt
+  uvicorn app.main:app --reload
+  ```
+
+##### 방법 B: Python venv 사용
 * **Linux / macOS (Bash):**
   ```bash
   python -m venv .venv
