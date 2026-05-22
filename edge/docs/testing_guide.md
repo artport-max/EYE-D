@@ -382,7 +382,10 @@ chmod +x edge/tools/run_mediamtx_docker.sh
 # 2. 미디어 서버 구동 (백그라운드 실행)
 ./edge/tools/run_mediamtx_docker.sh
 
-# 3. 미디어 서버 중지
+# 3. 미디어 서버 구동 (포어그라운드 실행 - 로그 실시간 모니터링 시)
+./edge/tools/run_mediamtx_docker.sh foreground
+
+# 4. 미디어 서버 중지 (백그라운드 실행 중일 때)
 ./edge/tools/run_mediamtx_docker.sh stop
 ```
 
@@ -459,8 +462,23 @@ ffmpeg -re -stream_loop -1 -i ./16300002.avi -c copy -f rtsp rtsp://localhost:85
 
 ### 5.3. 에지 노드(수신 측) 정상 수신 검증
 에지 기기에서 실제 스트림이 도달하는지 `ffplay`를 사용해 사전 점검할 수 있습니다.
+
+**단일 채널 검증:**
 ```bash
 ffplay rtsp://<전송노드_IP>:8554/cam01
+```
+
+**다채널 동시 검증 (스크립트 활용):**
+제공된 모니터링 스크립트를 사용해 `cam01`, `cam02`, `cam03` 총 3개 채널의 영상을 개별 ffplay 창으로 백그라운드에서 동시에 띄워 확인할 수 있습니다.
+```bash
+# 1. 실행 권한 부여
+chmod +x edge/tools/view_streams.sh
+
+# 2. 다채널 모니터링 기동 (전송노드 IP 주소를 인자로 제공. 생략 시 localhost로 작동)
+./edge/tools/view_streams.sh <전송노드_IP>
+
+# 3. 모니터링 일괄 종료
+pkill ffplay
 ```
 
 ### 5.4. 에지 AI 파이프라인 연동 (`main.py` 구동 예시)

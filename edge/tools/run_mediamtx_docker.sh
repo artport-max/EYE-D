@@ -4,11 +4,13 @@
 # Mediamtx RTSP 미디어 서버 Docker 구동 스크립트 (run_mediamtx_docker.sh)
 #
 # 사용법:
-#   - 구동: ./run_mediamtx_docker.sh
+#   - 백그라운드 구동 (기본): ./run_mediamtx_docker.sh
+#   - 포어그라운드 구동: ./run_mediamtx_docker.sh foreground (또는 -f, --foreground)
 #   - 중지: ./run_mediamtx_docker.sh stop
 # ==============================================================================
 
 CONTAINER_NAME="mediamtx"
+BACKGROUND=true
 
 # Docker 설치 및 권한 확인
 if ! command -v docker &> /dev/null; then
@@ -16,7 +18,7 @@ if ! command -v docker &> /dev/null; then
     exit 1
 fi
 
-# 1. 중지 명령어 처리
+# 1. 인자 분석
 if [ "$1" == "stop" ]; then
     echo "========================================================"
     echo "    RTSP 미디어 서버 (Mediamtx) 컨테이너를 중지합니다..."
@@ -30,6 +32,8 @@ if [ "$1" == "stop" ]; then
     fi
     echo "========================================================"
     exit 0
+elif [ "$1" == "foreground" ] || [ "$1" == "-f" ] || [ "$1" == "--foreground" ]; then
+    BACKGROUND=false
 fi
 
 # 2. 구동 프로세스
@@ -51,20 +55,28 @@ if docker ps -a --filter "name=^/${CONTAINER_NAME}$" | grep -q "${CONTAINER_NAME
     docker rm -f ${CONTAINER_NAME} > /dev/null 2>&1
 fi
 
-# Mediamtx 컨테이너 백그라운드 구동
-echo "Mediamtx 컨테이너(bluenviron/mediamtx:latest)를 백그라운드에서 시작합니다..."
-docker run -d --rm --name ${CONTAINER_NAME} --network=host bluenviron/mediamtx:latest
+# 3. 구동 방식에 따른 분기 실행
+if [ "$BACKGROUND" = true ]; then
+    echo "Mediamtx 컨테이너(bluenviron/mediamtx:latest)를 백그라운드에서 시작합니다..."
+    docker run -d --rm --name ${CONTAINER_NAME} --network=host bluenviron/mediamtx:latest
 
-# 기동 대기
-echo "네트워크 바인딩 및 서버 기동 대기 중 (2초)..."
-sleep 2
+    # 기동 대기
+    echo "네트워크 바인딩 및 서버 기동 대기 중 (2초)..."
+    sleep 2
 
-# 최종 구동 상태 확인
-if docker ps --filter "name=^/${CONTAINER_NAME}$" --filter "status=running" | grep -q "${CONTAINER_NAME}"; then
-    echo "[SUCCESS] Mediamtx 컨테이너가 백그라운드에서 성공적으로 구동되었습니다."
-    echo "RTSP 서버 기본 포트: 8554 (TCP/UDP)"
-    echo "RTSP 기본 송출 주소 예시: rtsp://localhost:8554/cam01"
+    # 최종 구동 상태 확인
+    if docker ps --filter "name=^/${CONTAINER_NAME}$" --filter "status=running" | grep -q "${CONTAINER_NAME}"; then
+        echo "[SUCCESS] Mediamtx 컨테이너가 백그라운드에서 성공적으로 구동되었습니다."
+        echo "RTSP 서버 기본 포트: 8554 (TCP/UDP)"
+        echo "RTSP 기본 송출 주소 예시: rtsp://localhost:8554/cam01"
+    else
+        echo "[ERROR] Mediamtx 컨테이너 구동에 실패했습니다. 'docker logs ${CONTAINER_NAME}' 명령으로 원인을 확인하십시오."
+    fi
 else
-    echo "[ERROR] Mediamtx 컨테이너 구동에 실패했습니다. 'docker logs ${CONTAINER_NAME}' 명령으로 원인을 확인하십시오."
+    echo "Mediamtx 컨테이너(bluenviron/mediamtx:latest)를 포어그라운드에서 시작합니다..."
+    echo "콘솔 로그 출력을 시작합니다. 종료하려면 Ctrl+C를 누르십시오."
+    echo "--------------------------------------------------------"
+    docker run -it --rm --name ${CONTAINER_NAME} --network=host bluenviron/mediamtx:latest
 fi
+
 echo "========================================================"
