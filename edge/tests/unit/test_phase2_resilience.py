@@ -185,10 +185,12 @@ class TestResilienceAndParallelism(unittest.TestCase):
             # 두 번째 "osnet_x0_25.onnx" 호출 ➔ True 반환 (모델 로드 진입)
             existing_files = set()
             def mock_exists_side_effect(path):
-                if path == "osnet_x0_25.onnx":
-                    if path in existing_files:
+                if isinstance(path, str) and "osnet_x0_25.onnx" in path:
+                    # 파일 이름 기준으로 체크
+                    key = "osnet_x0_25.onnx"
+                    if key in existing_files:
                         return True
-                    existing_files.add(path)
+                    existing_files.add(key)
                     return False
                 return True
             mock_exists.side_effect = mock_exists_side_effect

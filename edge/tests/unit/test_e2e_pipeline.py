@@ -60,6 +60,7 @@ class TestEndToEndPipeline(unittest.TestCase):
         
         # 3. 단일 프레임 파이프라인 실행
         result = runner.process_frame(self.frame, camera_id="cam_east_01")
+        runner.stop()  # Queue flush 유도
         
         # 4. 연쇄 결과물 무결성 검증
         self.assertIsNotNone(result)

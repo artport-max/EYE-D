@@ -158,11 +158,12 @@ class TestPipelineRunnerWithDB:
     """DB 주입 시 저장 동작 테스트."""
 
     def test_vectors_saved_to_db_after_process(self, frame):
-        """process_frame() 후 Mock DB에 벡터가 저장되어야 한다."""
+        """process_frame() 후 runner.stop()으로 flush하면 Mock DB에 벡터가 저장되어야 한다."""
         mock_db = MockVectorDBClient()
         runner = make_pipeline(db_client=mock_db)
 
         runner.process_frame(frame, camera_id='cam_01')
+        runner.stop()  # flush 유도
 
         assert mock_db.upsert_call_count == 1
         assert mock_db.total_record_count('reid_collection') == 2  # track_id 1, 2
@@ -173,6 +174,7 @@ class TestPipelineRunnerWithDB:
         runner = make_pipeline(db_client=mock_db)
 
         runner.process_frame(frame, camera_id='cam_42')
+        runner.stop()  # flush 유도
 
         records = mock_db.get_records('reid_collection')
         assert all(r['payload']['camera_id'] == 'cam_42' for r in records)

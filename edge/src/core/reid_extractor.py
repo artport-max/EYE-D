@@ -50,12 +50,44 @@ class ReIDExtractor:
         self._initialize_extractor()
 
     def _initialize_extractor(self):
-        """FeatureExtractor를 로드하고 초기화합니다."""
+        """FeatureExtractor 또는 ONNX Runtime 세션을 로드하고 초기화합니다."""
+        import os
+        onnx_path = os.getenv("REID_MODEL_PATH", f"{self.model_name}.onnx")
+        # edge 디렉토리 아래가 기본 실행 경로이므로, 경로가 없을 경우 edge/osnet_x0_25.onnx 등도 시도할 수 있도록 처리
+        if not os.path.exists(onnx_path):
+            # 대안 경로 시도
+            alt_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), onnx_path)
+            if os.path.exists(alt_path):
+                onnx_path = alt_path
+            elif os.path.exists(os.path.join("edge", f"{self.model_name}.onnx")):
+                onnx_path = os.path.join("edge", f"{self.model_name}.onnx")
+
+        # 1단계: torchreid 가 없을 때 ONNX Runtime 으로만 기동 시도
         if FeatureExtractor is None:
-            logger.error("torchreid library is not installed or FeatureExtractor cannot be imported.")
+            logger.info("torchreid library not found. Attempting pure ONNX Runtime initialization...")
+            if self.use_onnx:
+                try:
+                    import onnxruntime as ort
+                    if os.path.exists(onnx_path):
+                        # GPU 가속을 위해 CUDAExecutionProvider 우선 지정
+                        providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+                        self.ort_session = ort.InferenceSession(onnx_path, providers=providers)
+                        self.is_loaded = True
+                        logger.info(f"Loaded hardware-accelerated ONNX model from '{onnx_path}' (Pure ONNX mode)")
+                        return
+                    else:
+                        logger.error(f"ONNX model file not found at '{onnx_path}' and torchreid is unavailable.")
+                except ImportError as e:
+                    logger.error(f"onnxruntime import failed and torchreid is unavailable: {e}")
+                except Exception as e:
+                    logger.error(f"Failed to initialize pure ONNX Runtime session: {e}")
+            else:
+                logger.error("torchreid is unavailable and ONNX mode is disabled.")
+            
             self.is_loaded = False
             return
 
+        # 2단계: torchreid 가 존재할 때 기존 가속화 로직 동작
         try:
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
             logger.info(f"Initializing Re-ID FeatureExtractor ({self.model_name}) on {device}...")
@@ -68,10 +100,8 @@ class ReIDExtractor:
             
             # ONNX Runtime 가속 자동 빌드 및 로드
             if self.use_onnx:
-                import os
                 try:
                     import onnxruntime as ort
-                    onnx_path = os.getenv("REID_MODEL_PATH", f"{self.model_name}.onnx")
                     
                     if not os.path.exists(onnx_path):
                         logger.info(
@@ -149,7 +179,7 @@ class ReIDExtractor:
                 ...
             ]
         """
-        if not self.is_loaded or self.extractor is None:
+        if not self.is_loaded:
             logger.warning("ReID Extractor not loaded. Returning mock/empty vectors.")
             return []
 
@@ -180,28 +210,42 @@ class ReIDExtractor:
             if self.preprocessor is not None:
                 roi = self.preprocessor.enhance_roi(roi)
 
-            # BGR -> RGB 변환 및 PIL Image 변환 (torchreid FeatureExtractor/preprocess 공통 호환성 확보)
-            from PIL import Image
-            roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
-            pil_img = Image.fromarray(roi_rgb)
-
             try:
                 # ONNX 가속 추론 경로
                 if self.use_onnx and self.ort_session is not None:
-                    # PyTorch FeatureExtractor의 전처리 파이프라인을 그대로 사용하여 데이터 정규화 일관성 확보
-                    # self.extractor.preprocess는 [C, H, W] 텐서 반환
-                    tensor = self.extractor.preprocess(pil_img)
-                    input_data = tensor.unsqueeze(0).cpu().numpy()  # [1, C, H, W]
+                    # torchreid가 사용 가능하고 extractor가 로드되었으면 기존 전처리 사용
+                    if self.extractor is not None:
+                        # BGR -> RGB 변환 및 PIL Image 변환
+                        from PIL import Image
+                        roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
+                        pil_img = Image.fromarray(roi_rgb)
+                        tensor = self.extractor.preprocess(pil_img)
+                        input_data = tensor.unsqueeze(0).cpu().numpy()  # [1, C, H, W]
+                    else:
+                        # torchreid가 없을 때는 OpenCV/NumPy로 직접 전처리 수행 (ImageNet 정규화 동일 매핑)
+                        roi_resized = cv2.resize(roi, (128, 256), interpolation=cv2.INTER_LINEAR)
+                        roi_rgb = cv2.cvtColor(roi_resized, cv2.COLOR_BGR2RGB)
+                        
+                        img_data = roi_rgb.astype(np.float32) / 255.0
+                        mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+                        std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+                        img_data = (img_data - mean) / std
+                        
+                        img_data = np.transpose(img_data, (2, 0, 1))  # HWC -> CHW
+                        input_data = np.expand_dims(img_data, axis=0)  # [1, C, H, W]
                     
                     ort_inputs = {self.ort_session.get_inputs()[0].name: input_data}
                     features = self.ort_session.run(None, ort_inputs)[0]  # [1, 512]
                     vector = features[0].tolist()
                 else:
-                    # 기존 PyTorch 추론 경로
-                    # FeatureExtractor는 PIL Image 리스트를 직접 입력받아 자체 전처리 및 추론을 수행함
-                    features = self.extractor([pil_img])
+                    # 기존 PyTorch 추론 경로 (torchreid와 PyTorch 백엔드가 필수)
+                    if self.extractor is None:
+                        raise RuntimeError("torchreid FeatureExtractor is not initialized, cannot run PyTorch inference.")
                     
-                    # 텐서로부터 피처 벡터를 numpy를 거쳐 파이썬 표준 float 리스트로 가공
+                    from PIL import Image
+                    roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
+                    pil_img = Image.fromarray(roi_rgb)
+                    features = self.extractor([pil_img])
                     vector = features[0].cpu().numpy().tolist()
 
                 results.append({

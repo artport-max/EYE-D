@@ -135,15 +135,17 @@ class TestPipelineWithNullObjects:
         assert result['frame_index'] == 1
 
     def test_server_sender_called_when_injected(self):
-        """MockHTTPSender 주입 시 process_frame() 후 POST가 1회 호출되어야 한다."""
+        """MockHTTPSender 주입 시 process_frame() 후 stop()을 호출하여 flush하면 POST가 호출되어야 한다."""
         mock_sender = MockHTTPSender()
         runner = make_pipeline_with_mocks(http_sender=mock_sender)
         frame = dummy_bgr_frame()
 
         runner.process_frame(frame, camera_id='cam_01')
+        runner.stop()  # flush 유도
 
-        assert mock_sender.call_count == 1
-        assert mock_sender.last_endpoint == '/api/v1/vectors'
+        # mock_sender.call_count는 각 track_id가 개별 전송되므로 2가 되어야 한다. (MockDetector는 기본 2개 검출)
+        assert mock_sender.call_count == 2
+        assert mock_sender.last_endpoint == '/api/v1/security/detections'
 
     def test_server_payload_contains_camera_id(self):
         """서버 전송 페이로드에 camera_id가 포함되어야 한다."""
@@ -152,24 +154,27 @@ class TestPipelineWithNullObjects:
         frame = dummy_bgr_frame()
 
         runner.process_frame(frame, camera_id='cam_42')
+        runner.stop()  # flush 유도
 
         payload = mock_sender.last_payload
+        assert payload is not None
         assert payload['camera_id'] == 'cam_42'
 
     def test_server_payload_tracks_have_vector(self):
-        """서버 전송 페이로드의 각 track에 512차원 vector가 있어야 한다."""
+        """서버 전송 페이로드의 embedding_identity는 512차원 vector여야 한다."""
         mock_sender = MockHTTPSender()
         runner = make_pipeline_with_mocks(http_sender=mock_sender)
         frame = dummy_bgr_frame()
 
         runner.process_frame(frame)
+        runner.stop()  # flush 유도
 
-        tracks = mock_sender.last_payload['tracks']
-        assert len(tracks) > 0
-        for track in tracks:
-            assert 'track_id' in track
-            assert 'vector' in track
-            assert len(track['vector']) == 512
+        payload = mock_sender.last_payload
+        assert payload is not None
+        assert 'tracklet_id' in payload
+        assert 'embedding_identity' in payload
+        assert isinstance(payload['embedding_identity'], list)
+        assert len(payload['embedding_identity']) == 512
 
     def test_get_intermediate_results_shows_configured_state(self):
         """실제 DB/Sender 주입 시 get_intermediate_results에서 configured=True여야 한다."""
