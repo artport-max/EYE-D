@@ -7,8 +7,12 @@ import signal
 import os
 
 # headless 환경 대비 cv2 highgui 함수 모킹 패치
+def _mock_imshow(*args, **kwargs):
+    pass
+_mock_imshow._is_mock = True
+
 if not hasattr(cv2, 'imshow'):
-    cv2.imshow = lambda *args, **kwargs: None
+    cv2.imshow = _mock_imshow
 if not hasattr(cv2, 'destroyAllWindows'):
     cv2.destroyAllWindows = lambda *args, **kwargs: None
 if not hasattr(cv2, 'destroyWindow'):
@@ -97,7 +101,7 @@ def main():
 
     # 3. 비디오 캡처 초기화
     # HighGUI(화면 표시) 기능 미지원 시 display 옵션 자동 끄기
-    if args.display and cv2.imshow.__code__ == (lambda *args, **kwargs: None).__code__:
+    if args.display and getattr(cv2.imshow, '_is_mock', False):
         logger.warning("현재 OpenCV 빌드 환경에 HighGUI(디스플레이 화면 출력) 기능이 포함되어 있지 않습니다. --display 플래그를 자동으로 비활성화합니다.")
         args.display = False
 
