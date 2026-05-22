@@ -31,6 +31,7 @@
     - [8.4. 다중 스트림 환경에서의 GPU 인스턴스 공유](#84-다중-스트림-환경에서의-gpu-인스턴스-공유)
     - [8.5. 최신 프레임 보존 Drop 전략 (Frame Drop Strategy)](#85-최신-프레임-보존-drop-전략-frame-drop-strategy)
     - [8.6. ONNX 및 TensorRT 가속 파이프라인 채택](#86-onnx-및-tensorrt-가속-파이프라인-채택)
+    - [8.7. 컨테이너 이미지 빌드 전략 및 아키텍처 한계 대응](#87-컨테이너-이미지-빌드-전략-및-아키텍처-한계-대응)
 9. [코드 설명 (Core Source Code Analysis)](#9-코드-설명-core-source-code-analysis)
     - [9.1. pipeline_runner.py](#91-pipeline_runnerpy-실행-오케스트레이터-및-제어-루프)
     - [9.2. preprocessor.py](#92-preprocessorpy-지능형-화질-개선-필터-세트)
@@ -613,6 +614,12 @@ Jetson의 GPU 및 NVDLA(딥러닝 가속기)를 최대한 활용하기 위해 YO
 ### 8.6. ONNX 및 TensorRT 가속 파이프라인 채택
 * **근거**: 엣지 하드웨어의 저사양 CPU 코어로 딥러닝 추론을 진행하면 실시간 추론(최소 15~30 FPS)이 불가능합니다. 이를 달성하고자 YOLOv8에는 FP16 기반 **TensorRT 가속**을 바인딩하고, OSNet 특징 추출기에는 최적의 CPU/GPU 하드웨어 레지스트리를 타는 **ONNX Runtime 가속**을 동시 적용해 추론 속도를 기존 PyTorch CPU 대비 최대 4~6배 이상 끌어올렸습니다.
 * **설치 요건**: 파이프라인이 정상적으로 ONNX 가속으로 동작하려면 시스템 가상환경에 `onnxruntime`(CPU 용) 또는 `onnxruntime-gpu`(Jetson/CUDA 용) 패키지가 필수적입니다. 패키지가 손상되었거나 유실된 경우 시스템은 안전하게 PyTorch 백엔드로 대체 구동(Fallback)되도록 설계되어 예외 복구력을 높였습니다.
+
+### 8.7. 컨테이너 이미지 빌드 전략 및 아키텍처 한계 대응
+* **근거 (x86_64 vs ARM64 아키텍처 불일치)**: 베이스 이미지인 NVIDIA 공식 L4T PyTorch(`nvcr.io/nvidia/l4t-pytorch`) 및 엣지 가속 라이브러리는 **ARM64(Aarch64)** 아키텍처 전용으로 빌드되어 있습니다. 일반적인 x86_64 개발 호스트 PC에서 단순 `docker build`를 시도하면 명령어 실행 단계(`RUN`)에서 `exec format error`와 함께 빌드가 즉시 실패합니다.
+* **설계 및 해결 정책**:
+  1. **엣지 직접 빌드 (Edge-Native Build) 권장**: 복잡한 크로스 빌드(Cross-build) 환경 설정에 따른 개발자 오버헤드와 오동작 가능성을 줄이기 위해, 소스 코드를 Jetson 장비 내부로 이동한 후 **Jetson 보드 내에서 직접 도커 이미지 빌드를 수행**하는 것을 기본 배포 프로세스로 정책화합니다.
+  2. **크로스 빌드(Cross-build) 대안 제공**: 호스트 PC(Host)에서 일괄 빌드 및 배포를 원하는 엔터프라이즈 환경을 위해, 호스트 OS에 `qemu-user-static` ARM 에뮬레이터를 설치하고 `docker buildx` 도구의 `--platform linux/arm64` 옵션을 결합해 빌드한 후 `.tar.gz` 아카이브로 타겟 장비에 전송하는 대안적 이미지 이관 가이드라인을 분리 제공합니다.
 
 ---
 

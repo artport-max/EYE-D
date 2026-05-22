@@ -1,5 +1,5 @@
-# 1. NVIDIA L4T PyTorch 공식 이미지 사용
-FROM nvcr.io/nvidia/l4t-pytorch:r35.2.1-pth2.0-py3
+# 1. NVIDIA PyTorch 공식 이미지 사용 (JetPack 6.x / L4T R36.x 지원 전용 igpu 이미지)
+FROM nvcr.io/nvidia/pytorch:24.03-py3-igpu
 
 WORKDIR /app
 
