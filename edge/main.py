@@ -6,6 +6,18 @@ import sys
 import signal
 import os
 
+# headless 환경 대비 cv2 highgui 함수 모킹 패치
+if not hasattr(cv2, 'imshow'):
+    cv2.imshow = lambda *args, **kwargs: None
+if not hasattr(cv2, 'destroyAllWindows'):
+    cv2.destroyAllWindows = lambda *args, **kwargs: None
+if not hasattr(cv2, 'destroyWindow'):
+    cv2.destroyWindow = lambda *args, **kwargs: None
+if not hasattr(cv2, 'namedWindow'):
+    cv2.namedWindow = lambda *args, **kwargs: None
+if not hasattr(cv2, 'waitKey'):
+    cv2.waitKey = lambda *args, **kwargs: 1
+
 # edge 디렉토리 내부의 소스 모듈(src.*)을 올바르게 찾을 수 있도록 현재 디렉토리를 path에 추가
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -84,6 +96,11 @@ def main():
     runner.start()
 
     # 3. 비디오 캡처 초기화
+    # HighGUI(화면 표시) 기능 미지원 시 display 옵션 자동 끄기
+    if args.display and cv2.imshow.__code__ == (lambda *args, **kwargs: None).__code__:
+        logger.warning("현재 OpenCV 빌드 환경에 HighGUI(디스플레이 화면 출력) 기능이 포함되어 있지 않습니다. --display 플래그를 자동으로 비활성화합니다.")
+        args.display = False
+
     source = int(args.source) if args.source.isdigit() else args.source
     cap = cv2.VideoCapture(source)
     if not cap.isOpened():
