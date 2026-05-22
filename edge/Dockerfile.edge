@@ -3,6 +3,8 @@ FROM nvcr.io/nvidia/pytorch:24.03-py3-igpu
 
 WORKDIR /app
 
+ENV DEBIAN_FRONTEND=noninteractive
+
 # 2. 시스템 필수 의존성 및 이미지 라이브러리 설치 (pip는 베이스 이미지 내장 사용)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1-mesa-glx \
