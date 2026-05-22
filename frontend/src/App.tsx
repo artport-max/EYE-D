@@ -142,7 +142,9 @@ export default function App() {
           const alert = JSON.parse(event.data);
           const newLog: ReidLog = {
             id: alert.detection_id?.toString() || Math.random().toString(),
-            timestamp: new Date().toLocaleTimeString([], { hour12: false }),
+            timestamp: alert.detected_at
+              ? new Date(alert.detected_at).toLocaleTimeString([], { hour12: false })
+              : new Date().toLocaleTimeString([], { hour12: false }),
             personId: `PID-${alert.global_id}`,
             fromCamera: 'Unknown',
             toCamera: alert.camera_id || 'CAM_01',

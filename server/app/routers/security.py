@@ -30,7 +30,7 @@ async def _broadcast(msg: dict) -> None:
             _alert_clients.remove(d)
 
 
-async def broadcast_detection(detection_id: int, global_id: int, camera_id: str, similarity: float | None = None, is_intrusion: bool = False):
+async def broadcast_detection(detection_id: int, global_id: int, camera_id: str, similarity: float | None = None, is_intrusion: bool = False, detected_at: str | None = None):
     """일반 감지 이벤트 알림 — 실시간 대시보드 로그 갱신용"""
     await _broadcast({
         "type": "detection",
@@ -39,6 +39,7 @@ async def broadcast_detection(detection_id: int, global_id: int, camera_id: str,
         "camera_id": camera_id,
         "similarity": similarity,
         "is_intrusion": is_intrusion,
+        "detected_at": detected_at,
     })
 
 
@@ -154,6 +155,7 @@ async def post_detection(payload: DetectionIn) -> DetectionOut:
         camera_id=payload.camera_id,
         similarity=sim,
         is_intrusion=is_intrusion,
+        detected_at=payload.timestamp.isoformat() if hasattr(payload.timestamp, "isoformat") else str(payload.timestamp),
     )
 
     if is_intrusion:
