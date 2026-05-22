@@ -19,6 +19,16 @@ except ImportError:
     except ImportError:
         FeatureExtractor = None
 
+# Support BoxMOT built-in ReID backends
+PyTorchBackend = None
+try:
+    from boxmot.reid.backends import PyTorchBackend
+except ImportError:
+    try:
+        from boxmot.reid.backends.pytorch_backend import PyTorchBackend
+    except ImportError:
+        PyTorchBackend = None
+
 from src.core.tracker import TrackResult
 
 from src.core.preprocessor import ImagePreprocessor
@@ -62,7 +72,29 @@ class ReIDExtractor:
             elif os.path.exists(os.path.join("edge", f"{self.model_name}.onnx")):
                 onnx_path = os.path.join("edge", f"{self.model_name}.onnx")
 
-        # 1단계: torchreid 가 없을 때 ONNX Runtime 으로만 기동 시도
+        # 1단계: BoxMOT PyTorchBackend 사용 시도 (torchreid 빌드가 실패하는 환경 대비)
+        if PyTorchBackend is not None:
+            try:
+                device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+                logger.info(f"Attempting to initialize BoxMOT PyTorchBackend for Re-ID ({self.model_name}) on {device}...")
+                
+                # 모델 가중치 이름 규칙 변환 (ex: osnet_x0_25 -> osnet_x0_25_msmt17.pt)
+                weights_name = f"{self.model_name}_msmt17.pt" if "msmt17" not in self.model_name else f"{self.model_name}.pt"
+                if not weights_name.endswith('.pt'):
+                    weights_name += '.pt'
+                
+                self.extractor = PyTorchBackend(
+                    weights=weights_name,
+                    device=device,
+                    half=(device.type == 'cuda')
+                )
+                self.is_loaded = True
+                logger.info("Re-ID FeatureExtractor (via BoxMOT PyTorchBackend) loaded successfully.")
+                return
+            except Exception as e:
+                logger.warning(f"Failed to initialize BoxMOT PyTorchBackend: {e}. Falling back to torchreid/ONNX...")
+
+        # 2단계: torchreid 가 없을 때 ONNX Runtime 으로만 기동 시도
         if FeatureExtractor is None:
             logger.info("torchreid library not found. Attempting pure ONNX Runtime initialization...")
             if self.use_onnx:
@@ -76,18 +108,18 @@ class ReIDExtractor:
                         logger.info(f"Loaded hardware-accelerated ONNX model from '{onnx_path}' (Pure ONNX mode)")
                         return
                     else:
-                        logger.error(f"ONNX model file not found at '{onnx_path}' and torchreid is unavailable.")
+                        logger.error(f"ONNX model file not found at '{onnx_path}' and torchreid/boxmot is unavailable.")
                 except ImportError as e:
-                    logger.error(f"onnxruntime import failed and torchreid is unavailable: {e}")
+                    logger.error(f"onnxruntime import failed and torchreid/boxmot is unavailable: {e}")
                 except Exception as e:
                     logger.error(f"Failed to initialize pure ONNX Runtime session: {e}")
             else:
-                logger.error("torchreid is unavailable and ONNX mode is disabled.")
+                logger.error("torchreid/boxmot is unavailable and ONNX mode is disabled.")
             
             self.is_loaded = False
             return
 
-        # 2단계: torchreid 가 존재할 때 기존 가속화 로직 동작
+        # 3단계: torchreid 가 존재할 때 기존 가속화 로직 동작
         try:
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
             logger.info(f"Initializing Re-ID FeatureExtractor ({self.model_name}) on {device}...")
@@ -238,15 +270,27 @@ class ReIDExtractor:
                     features = self.ort_session.run(None, ort_inputs)[0]  # [1, 512]
                     vector = features[0].tolist()
                 else:
-                    # 기존 PyTorch 추론 경로 (torchreid와 PyTorch 백엔드가 필수)
+                    # 기존 PyTorch 추론 경로 (torchreid 또는 boxmot PyTorch 백엔드)
                     if self.extractor is None:
-                        raise RuntimeError("torchreid FeatureExtractor is not initialized, cannot run PyTorch inference.")
+                        raise RuntimeError("FeatureExtractor is not initialized, cannot run PyTorch inference.")
                     
-                    from PIL import Image
-                    roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
-                    pil_img = Image.fromarray(roi_rgb)
-                    features = self.extractor([pil_img])
-                    vector = features[0].cpu().numpy().tolist()
+                    extractor_name = type(self.extractor).__name__
+                    if extractor_name in ('PyTorchBackend', 'ONNXBackend') or hasattr(self.extractor, 'extract'):
+                        # boxmot PyTorchBackend / ONNXBackend는 BGR numpy array 리스트를 입력으로 받음
+                        features = self.extractor.extract([roi])
+                        if hasattr(features, 'cpu'):
+                            vector = features[0].cpu().numpy().tolist()
+                        elif hasattr(features, 'tolist'):
+                            vector = features[0].tolist()
+                        else:
+                            vector = np.array(features[0]).tolist()
+                    else:
+                        # 기존 torchreid FeatureExtractor 경로
+                        from PIL import Image
+                        roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
+                        pil_img = Image.fromarray(roi_rgb)
+                        features = self.extractor([pil_img])
+                        vector = features[0].cpu().numpy().tolist()
 
                 results.append({
                     'track_id': track.track_id,
