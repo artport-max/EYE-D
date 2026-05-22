@@ -284,103 +284,58 @@ export default function App() {
               exit={{ opacity: 0, y: -10 }}
               className="flex-1 flex flex-row overflow-hidden"
             >
-              {/* Central Area: Video Grid + Logs */}
-              <div className="flex-1 flex flex-col p-4 space-y-4 overflow-hidden">
-                {/* 4-Split Grid */}
-                <div className="grid grid-cols-2 grid-rows-2 gap-4 flex-[2]">
-                  {MOCK_CAMERAS.map((cam, idx) => (
-                    <div 
-                      key={cam.id} 
-                      className={cn(
-                        "relative rounded-xl overflow-hidden border border-[#1f1f23] bg-black group transition-all duration-300",
-                        selectedCamera?.id === cam.id ? "ring-2 ring-blue-500/50 scale-[0.99] border-blue-500/30" : "hover:border-gray-700"
-                      )}
-                      onClick={() => setSelectedCamera(cam)}
-                    >
-                      <VideoFeed camera={cam} isActive={selectedCamera?.id === cam.id} />
-                      <div className="absolute top-4 left-4 flex items-center space-x-2 z-20">
-                        <div className={cn(
-                          "w-2 h-2 rounded-full",
-                          idx === 2 ? "bg-emerald-500 animate-pulse" : "bg-red-500 animate-pulse"
-                        )} />
-                        <span className="text-xs font-medium text-white shadow-sm drop-shadow-md">{cam.name}</span>
+              {/* Left Main Area: Top Stats/Controls + Bottom Video Grid */}
+              <div className="flex-1 flex flex-col p-4 space-y-4 overflow-hidden min-h-0">
+                
+                {/* Top Row: Crowd Density & Feed Controls (가로 배치) */}
+                <div className="grid grid-cols-2 gap-4 shrink-0">
+                  
+                  {/* Crowd Density Panel */}
+                  <div className="p-4 rounded-xl border border-[#1f1f23] bg-[#0d0d0f] flex flex-col justify-between">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Crowd Density</h3>
+                      <Users size={16} className="text-blue-500" />
+                    </div>
+                    <div className="flex flex-row items-center gap-4 h-28">
+                      <div className="flex-1 h-full min-w-0">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={MOCK_STATS_DATA}>
+                            <defs>
+                              <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                                <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                              </linearGradient>
+                            </defs>
+                            <XAxis dataKey="time" hide />
+                            <YAxis hide />
+                            <Tooltip 
+                              contentStyle={{ backgroundColor: '#1a1a1e', borderColor: '#1f1f23', fontSize: '11px' }}
+                              itemStyle={{ color: '#60a5fa' }}
+                            />
+                            <Area type="monotone" dataKey="count" stroke="#3b82f6" fillOpacity={1} fill="url(#colorCount)" strokeWidth={2} />
+                          </AreaChart>
+                        </ResponsiveContainer>
                       </div>
-                      <div className="absolute bottom-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity z-20">
-                        <button className="p-2 rounded-lg bg-black/50 backdrop-blur-sm text-white hover:bg-black/70">
-                          <Maximize2 size={16} />
-                        </button>
+                      <div className="w-40 flex flex-col gap-2 shrink-0">
+                        <StatCard label="Total Detections" value={todayStats.today_count.toLocaleString()} delta="" />
+                        <StatCard label="Intrusions" value={todayStats.today_intrusions.toLocaleString()} delta="" inverse={true} />
                       </div>
                     </div>
-                  ))}
-                </div>
-
-                {/* Bottom: Re-ID Log Feed */}
-                <div className="flex-1 min-h-[200px] border border-[#1f1f23] rounded-xl bg-[#0d0d0f] flex flex-col overflow-hidden">
-                  <div className="px-4 py-3 border-b border-[#1f1f23] flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <Activity size={16} className="text-blue-400" />
-                      <h3 className="text-sm font-bold tracking-tight">REAL-TIME RE-ID LOG</h3>
-                    </div>
-                    <span className="text-[10px] text-gray-500 font-mono italic">STREAMING DATA...</span>
-                  </div>
-                  <div className="flex-1 p-2 overflow-y-auto space-y-2 scrollbar-thin scrollbar-thumb-[#1f1f23]">
-                    <AnimatePresence initial={false}>
-                      {logs.map((log) => (
-                        <ReidLogRow key={log.id} log={log} onClick={() => handleShowHistory(log.personId)} />
-                      ))}
-                    </AnimatePresence>
-                  </div>
-                </div>
-              </div>
-
-              {/* Right Sidebar: Stats + Camera Controls */}
-              <aside className="w-80 border-l border-[#1f1f23] bg-[#0d0d0f] flex flex-col overflow-y-auto">
-                <div className="p-6 space-y-6">
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider">Crowd Density</h3>
-                      <Users size={18} className="text-blue-500" />
-                    </div>
-                    <div className="h-48 w-full">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={MOCK_STATS_DATA}>
-                          <defs>
-                            <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
-                              <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                            </linearGradient>
-                          </defs>
-                          <XAxis dataKey="time" hide />
-                          <YAxis hide />
-                          <Tooltip 
-                            contentStyle={{ backgroundColor: '#1a1a1e', borderColor: '#1f1f23', fontSize: '12px' }}
-                            itemStyle={{ color: '#60a5fa' }}
-                          />
-                          <Area type="monotone" dataKey="count" stroke="#3b82f6" fillOpacity={1} fill="url(#colorCount)" strokeWidth={2} />
-                        </AreaChart>
-                      </ResponsiveContainer>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <StatCard label="Total Detections" value={todayStats.today_count.toLocaleString()} delta="" />
-                      <StatCard label="Intrusions" value={todayStats.today_intrusions.toLocaleString()} delta="" inverse={true} />
-                    </div>
                   </div>
 
-                  <hr className="border-[#1f1f23]" />
-
-                  <div className="space-y-6">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider">Feed Controls</h3>
-                      <Settings size={18} className="text-gray-500" />
+                  {/* Feed Controls Panel */}
+                  <div className="p-4 rounded-xl border border-[#1f1f23] bg-[#0d0d0f] flex flex-col justify-between">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Feed Controls</h3>
+                      <Settings size={16} className="text-gray-500" />
                     </div>
-                    
-                    <div className="space-y-4">
-                      <div className="p-4 rounded-xl bg-[#141416] border border-[#1f1f23]">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-xs font-bold text-blue-400">{selectedCamera?.name || 'No Camera Selected'}</span>
-                          <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-500 text-[8px] font-bold tracking-tighter uppercase">Live</span>
+                    <div className="flex flex-row items-center gap-4 h-28">
+                      <div className="flex-1 p-2 rounded-lg bg-[#141416] border border-[#1f1f23] h-full flex flex-col justify-center">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[10px] font-bold text-blue-400 truncate">{selectedCamera?.name || 'No Camera'}</span>
+                          <span className="px-1 py-0.2 rounded bg-emerald-500/10 text-emerald-500 text-[6px] font-bold uppercase shrink-0">Live</span>
                         </div>
-                        <div className="space-y-2">
+                        <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
                            <ControlToggle label="Object Detection" active />
                            <ControlToggle label="Person Tracking" active />
                            <ControlToggle label="Mask Check" />
@@ -388,31 +343,83 @@ export default function App() {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-2 text-[10px] text-gray-500 font-medium font-mono uppercase">
-                        <div className="p-2 rounded bg-[#141416]">FPS: <span className="text-gray-300">{selectedCamera?.fps || 0}</span></div>
-                        <div className="p-2 rounded bg-[#141416]">RES: <span className="text-gray-300">1080P</span></div>
-                        <div className="p-2 rounded bg-[#141416]">BW: <span className="text-gray-300">{selectedCamera?.bitrate || '0 Mbps'}</span></div>
-                        <div className="p-2 rounded bg-[#141416]">LAT: <span className="text-gray-300">12ms</span></div>
-                      </div>
+                      <div className="w-40 flex flex-col gap-2 shrink-0">
+                        <div className="grid grid-cols-2 gap-1 text-[9px] text-gray-500 font-medium font-mono uppercase">
+                          <div className="p-1 rounded bg-[#141416] text-center">FPS: <span className="text-gray-300">{selectedCamera?.fps || 0}</span></div>
+                          <div className="p-1 rounded bg-[#141416] text-center">RES: <span className="text-gray-300">1080P</span></div>
+                          <div className="p-1 rounded bg-[#141416] text-center truncate">BW: <span className="text-gray-300">{selectedCamera?.bitrate || '0M'}</span></div>
+                          <div className="p-1 rounded bg-[#141416] text-center">LAT: <span className="text-gray-300">12ms</span></div>
+                        </div>
 
-                      <div className="relative w-full">
-                        <input 
-                          type="file" 
-                          accept="image/*" 
-                          id="reid-upload" 
-                          className="hidden" 
-                          onChange={handleImageUpload}
-                        />
-                        <label 
-                          htmlFor="reid-upload" 
-                          className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-sm font-bold transition-all active:scale-[0.98] cursor-pointer flex items-center justify-center space-x-2"
-                        >
-                          <Search size={16} />
-                          <span>SEARCH BY IMAGE</span>
-                        </label>
+                        <div className="relative w-full">
+                          <input 
+                            type="file" 
+                            accept="image/*" 
+                            id="reid-upload" 
+                            className="hidden" 
+                            onChange={handleImageUpload}
+                          />
+                          <label 
+                            htmlFor="reid-upload" 
+                            className="w-full py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-[10px] font-bold transition-all active:scale-[0.98] cursor-pointer flex items-center justify-center space-x-1"
+                          >
+                            <Search size={10} />
+                            <span>SEARCH BY IMAGE</span>
+                          </label>
+                        </div>
                       </div>
                     </div>
                   </div>
+
+                </div>
+
+                {/* Bottom Row: Live Video Grid */}
+                <div className="flex-1 min-h-0">
+                  <div className="grid grid-cols-2 grid-rows-2 gap-4 h-full">
+                    {MOCK_CAMERAS.map((cam, idx) => (
+                      <div 
+                        key={cam.id} 
+                        className={cn(
+                          "relative rounded-xl overflow-hidden border border-[#1f1f23] bg-black group transition-all duration-300",
+                          selectedCamera?.id === cam.id ? "ring-2 ring-blue-500/50 scale-[0.99] border-blue-500/30" : "hover:border-gray-700"
+                        )}
+                        onClick={() => setSelectedCamera(cam)}
+                      >
+                        <VideoFeed camera={cam} isActive={selectedCamera?.id === cam.id} />
+                        <div className="absolute top-4 left-4 flex items-center space-x-2 z-20">
+                          <div className={cn(
+                            "w-2 h-2 rounded-full",
+                            idx === 2 ? "bg-emerald-500 animate-pulse" : "bg-red-500 animate-pulse"
+                          )} />
+                          <span className="text-xs font-medium text-white shadow-sm drop-shadow-md">{cam.name}</span>
+                        </div>
+                        <div className="absolute bottom-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                          <button className="p-2 rounded-lg bg-black/50 backdrop-blur-sm text-white hover:bg-black/70">
+                            <Maximize2 size={16} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Right Sidebar: Re-ID Log Feed */}
+              <aside className="w-[450px] border-l border-[#1f1f23] bg-[#0d0d0f] flex flex-col overflow-hidden">
+                <div className="px-4 py-3 border-b border-[#1f1f23] flex items-center justify-between shrink-0">
+                  <div className="flex items-center space-x-2">
+                    <Activity size={16} className="text-blue-400" />
+                    <h3 className="text-sm font-bold tracking-tight">REAL-TIME RE-ID LOG</h3>
+                  </div>
+                  <span className="text-[10px] text-gray-500 font-mono italic">STREAMING DATA...</span>
+                </div>
+                <div className="flex-1 p-3 overflow-y-auto space-y-2 scrollbar-thin scrollbar-thumb-[#1f1f23]">
+                  <AnimatePresence initial={false}>
+                    {logs.map((log) => (
+                      <ReidLogRow key={log.id} log={log} onClick={() => handleShowHistory(log.personId)} />
+                    ))}
+                  </AnimatePresence>
                 </div>
               </aside>
             </motion.div>
