@@ -417,7 +417,7 @@ export default function App() {
                 <div className="flex-1 p-3 overflow-y-auto space-y-2 scrollbar-thin scrollbar-thumb-[#1f1f23]">
                   <AnimatePresence initial={false}>
                     {logs.map((log) => (
-                      <ReidLogRow key={log.id} log={log} onClick={() => handleShowHistory(log.personId)} />
+                      <ReidLogRow key={log.id} log={log} onClick={() => handleShowHistory(log.personId, log.thumbnail)} />
                     ))}
                   </AnimatePresence>
                 </div>
@@ -461,7 +461,9 @@ const PersonHistory: React.FC<{ personId: string; targetImage: string | null; on
             time: new Date(ev.detected_at).toLocaleTimeString([], { hour12: false }),
             camera: ev.camera_id,
             confidence: ev.similarity ?? 0.9,
-            img: `https://images.unsplash.com/photo-${globalId % 2 === 0 ? '1507003211169-0a1dd7228f2d' : '1494790108377-be9c29b29330'}?w=800&h=600&fit=crop`,
+            img: ev.thumbnail_url
+              ? `${API_BASE.replace('/api/v1', '')}${ev.thumbnail_url}`
+              : `https://images.unsplash.com/photo-${globalId % 2 === 0 ? '1507003211169-0a1dd7228f2d' : '1494790108377-be9c29b29330'}?w=800&h=600&fit=crop`,
             videoColor: ev.is_intrusion ? 'yellow' : 'emerald'
           }));
           setEvents(formattedEvents);
@@ -476,6 +478,11 @@ const PersonHistory: React.FC<{ personId: string; targetImage: string | null; on
   }, [globalId]);
 
   const defaultImg = `https://images.unsplash.com/photo-${globalId % 2 === 0 ? '1507003211169-0a1dd7228f2d' : '1494790108377-be9c29b29330'}?w=800&h=600&fit=crop`;
+  const hasRealTargetImage = targetImage && !targetImage.includes('unsplash.com');
+  const realEventImage = [...events].reverse().find(ev => ev.img && !ev.img.includes('unsplash.com'))?.img;
+  const displayProfileImg = hasRealTargetImage 
+    ? targetImage 
+    : (realEventImage || targetImage || defaultImg);
 
   return (
     <motion.div 
@@ -488,7 +495,7 @@ const PersonHistory: React.FC<{ personId: string; targetImage: string | null; on
         {/* Left: Summary Profile */}
         <div className="w-80 flex flex-col space-y-6">
           <div className="relative rounded-2xl overflow-hidden border border-blue-500/30 bg-[#0d0d0f]">
-            <img src={targetImage || defaultImg} alt="Profile" className="w-full h-80 object-cover" />
+            <img src={displayProfileImg} alt="Profile" className="w-full h-80 object-cover" />
             <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black to-transparent p-6">
               <div className="flex items-center justify-between">
                 <div>

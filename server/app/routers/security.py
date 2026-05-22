@@ -86,6 +86,11 @@ async def broadcast_regular_visit(global_id: int, camera_id: str, visit_count: i
 @router.post("/detections", response_model=DetectionOut)
 async def post_detection(payload: DetectionIn) -> DetectionOut:
     """엣지에서 탐지 이벤트를 받아 매칭 + DB 저장 + 자동 분류 hook."""
+    from datetime import timezone
+    detected_at_dt = payload.timestamp
+    if detected_at_dt.tzinfo is None:
+        detected_at_dt = detected_at_dt.replace(tzinfo=timezone.utc)
+
     pool = get_pool()
     emb_str = "[" + ",".join(f"{x:.6f}" for x in payload.embedding_identity) + "]"
     is_intrusion = (payload.event_type == "intrusion")
@@ -120,7 +125,7 @@ async def post_detection(payload: DetectionIn) -> DetectionOut:
                 RETURNING detection_id
                 """,
                 payload.camera_id, payload.tracklet_id, global_id,
-                emb_str, json.dumps(payload.bbox), payload.timestamp,
+                emb_str, json.dumps(payload.bbox), detected_at_dt,
                 is_intrusion, sim,
                 json.dumps(payload.pose_keypoints) if payload.pose_keypoints else None,
                 payload.action_label,
@@ -158,7 +163,7 @@ async def post_detection(payload: DetectionIn) -> DetectionOut:
 
             await conn.execute(
                 "UPDATE persons SET last_seen_at = $1 WHERE global_id = $2",
-                payload.timestamp, global_id,
+                detected_at_dt, global_id,
             )
 
             # 3) 자동 분류 hook — 실패해도 본 흐름 보호 (try/except)
@@ -166,7 +171,7 @@ async def post_detection(payload: DetectionIn) -> DetectionOut:
                 classification = await customer_classifier.classify_and_record(
                     conn=conn,
                     global_id=global_id,
-                    detected_at=payload.timestamp,
+                    detected_at=detected_at_dt,
                     is_intrusion=is_intrusion,
                     primary_camera=payload.camera_id,
                 )
@@ -187,7 +192,7 @@ async def post_detection(payload: DetectionIn) -> DetectionOut:
         camera_id=payload.camera_id,
         similarity=sim,
         is_intrusion=is_intrusion,
-        detected_at=payload.timestamp.isoformat() if hasattr(payload.timestamp, "isoformat") else str(payload.timestamp),
+        detected_at=detected_at_dt.isoformat() if hasattr(detected_at_dt, "isoformat") else str(detected_at_dt),
         thumbnail_url=thumbnail_url,
     )
 
