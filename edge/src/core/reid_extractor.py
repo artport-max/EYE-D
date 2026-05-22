@@ -275,9 +275,18 @@ class ReIDExtractor:
                         raise RuntimeError("FeatureExtractor is not initialized, cannot run PyTorch inference.")
                     
                     extractor_name = type(self.extractor).__name__
-                    if extractor_name in ('PyTorchBackend', 'ONNXBackend') or hasattr(self.extractor, 'extract'):
-                        # boxmot PyTorchBackend / ONNXBackend는 BGR numpy array 리스트를 입력으로 받음
-                        features = self.extractor.extract([roi])
+                    if extractor_name in ('PyTorchBackend', 'ONNXBackend') or not hasattr(self.extractor, 'model_name'):
+                        # boxmot PyTorchBackend / ONNXBackend 계열인 경우
+                        if hasattr(self.extractor, 'extract'):
+                            features = self.extractor.extract([roi])
+                        elif callable(self.extractor):
+                            features = self.extractor([roi])
+                        elif hasattr(self.extractor, 'get_features'):
+                            h_roi, w_roi = roi.shape[:2]
+                            features = self.extractor.get_features(np.array([[0, 0, w_roi, h_roi]]), roi)
+                        else:
+                            raise AttributeError(f"BoxMOT ReID backend ({extractor_name}) lacks known inference methods ('extract', '__call__', 'get_features').")
+                        
                         if hasattr(features, 'cpu'):
                             vector = features[0].cpu().numpy().tolist()
                         elif hasattr(features, 'tolist'):
