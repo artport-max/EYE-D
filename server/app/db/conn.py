@@ -16,9 +16,10 @@ async def init_pool() -> asyncpg.Pool:
         _pool = await asyncpg.create_pool(dsn, min_size=1, max_size=5)
     assert _pool is not None     
     
-    # 자동으로 schema 마이그레이션 (similarity 컬럼 추가)
+    # 자동으로 schema 마이그레이션 (similarity, thumbnail_url 컬럼 추가)
     async with _pool.acquire() as conn:
         await conn.execute("ALTER TABLE detections ADD COLUMN IF NOT EXISTS similarity REAL;")
+        await conn.execute("ALTER TABLE detections ADD COLUMN IF NOT EXISTS thumbnail_url TEXT;")
         
     return _pool
 

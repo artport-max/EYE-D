@@ -10,6 +10,7 @@ from typing import List, Dict
 import cv2
 import numpy as np
 import torch
+import base64
 
 try:
     from torchreid.utils import FeatureExtractor
@@ -301,11 +302,28 @@ class ReIDExtractor:
                         features = self.extractor([pil_img])
                         vector = features[0].cpu().numpy().tolist()
 
+                # 썸네일 이미지 메모리 인코딩 및 Base64 변환
+                thumbnail_base64 = None
+                try:
+                    h_roi, w_roi = roi.shape[:2]
+                    max_size = 128
+                    if h_roi > max_size or w_roi > max_size:
+                        scale = max_size / max(h_roi, w_roi)
+                        roi_resized = cv2.resize(roi, (int(w_roi * scale), int(h_roi * scale)), interpolation=cv2.INTER_AREA)
+                    else:
+                        roi_resized = roi
+
+                    _, img_buffer = cv2.imencode('.jpg', roi_resized, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                    thumbnail_base64 = "data:image/jpeg;base64," + base64.b64encode(img_buffer).decode('utf-8')
+                except Exception as img_err:
+                    logger.warning(f"Failed to encode ROI to base64: {img_err}")
+
                 results.append({
                     'track_id': track.track_id,
                     'vector': vector,
                     'confidence': track.confidence,
                     'bbox': [x1, y1, x2, y2],
+                    'thumbnail_base64': thumbnail_base64,
                 })
             except Exception as e:
                 logger.error(f"Failed to extract Re-ID features for track_id {track.track_id}: {e}")

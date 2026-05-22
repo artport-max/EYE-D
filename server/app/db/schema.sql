@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS detections (
     detected_at         TIMESTAMPTZ NOT NULL,
     is_intrusion        BOOLEAN DEFAULT FALSE,
     similarity          REAL,
+    thumbnail_url       TEXT,
 
     -- arttrace 확장 슬롯 (NULL 허용)
     pose_keypoints   JSONB,

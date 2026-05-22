@@ -4,6 +4,8 @@
 2026-05-19: post_detection 에 자동 분류 hook + 알림 타입 분기 추가.
 """
 import json
+import base64
+import os
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 
 from app.schemas.detection import DetectionIn, DetectionOut
@@ -30,7 +32,7 @@ async def _broadcast(msg: dict) -> None:
             _alert_clients.remove(d)
 
 
-async def broadcast_detection(detection_id: int, global_id: int, camera_id: str, similarity: float | None = None, is_intrusion: bool = False, detected_at: str | None = None):
+async def broadcast_detection(detection_id: int, global_id: int, camera_id: str, similarity: float | None = None, is_intrusion: bool = False, detected_at: str | None = None, thumbnail_url: str | None = None):
     """일반 감지 이벤트 알림 — 실시간 대시보드 로그 갱신용"""
     await _broadcast({
         "type": "detection",
@@ -40,10 +42,11 @@ async def broadcast_detection(detection_id: int, global_id: int, camera_id: str,
         "similarity": similarity,
         "is_intrusion": is_intrusion,
         "detected_at": detected_at,
+        "thumbnail_url": thumbnail_url,
     })
 
 
-async def broadcast_intrusion(detection_id: int, global_id: int, camera_id: str, similarity: float | None = None):
+async def broadcast_intrusion(detection_id: int, global_id: int, camera_id: str, similarity: float | None = None, thumbnail_url: str | None = None):
     """침입 이벤트 — 기존 클라이언트 호환 형식 그대로."""
     await _broadcast({
         "type": "intrusion",
@@ -51,6 +54,7 @@ async def broadcast_intrusion(detection_id: int, global_id: int, camera_id: str,
         "global_id": global_id,
         "camera_id": camera_id,
         "similarity": similarity,
+        "thumbnail_url": thumbnail_url,
     })
 
 
@@ -124,6 +128,34 @@ async def post_detection(payload: DetectionIn) -> DetectionOut:
                 json.dumps(payload.appearance_attrs) if payload.appearance_attrs else None,
                 json.dumps(payload.scene_context) if payload.scene_context else None,
             )
+
+            # 2.5) 썸네일(Base64) 디코딩 및 디스크 저장
+            thumbnail_url = None
+            if payload.thumbnail_base64:
+                try:
+                    img_data = payload.thumbnail_base64
+                    if "," in img_data:
+                        img_data = img_data.split(",")[1]
+                    decoded_img = base64.b64decode(img_data)
+                    
+                    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                    thumbnails_dir = os.path.join(base_dir, "data", "thumbnails")
+                    os.makedirs(thumbnails_dir, exist_ok=True)
+                    
+                    filename = f"detection_{row['detection_id']}.jpg"
+                    filepath = os.path.join(thumbnails_dir, filename)
+                    
+                    with open(filepath, "wb") as f:
+                        f.write(decoded_img)
+                        
+                    thumbnail_url = f"/thumbnails/{filename}"
+                    await conn.execute(
+                        "UPDATE detections SET thumbnail_url = $1 WHERE detection_id = $2",
+                        thumbnail_url, row["detection_id"]
+                    )
+                except Exception as e:
+                    print(f"[WARN] Failed to save thumbnail image: {e}")
+
             await conn.execute(
                 "UPDATE persons SET last_seen_at = $1 WHERE global_id = $2",
                 payload.timestamp, global_id,
@@ -156,6 +188,7 @@ async def post_detection(payload: DetectionIn) -> DetectionOut:
         similarity=sim,
         is_intrusion=is_intrusion,
         detected_at=payload.timestamp.isoformat() if hasattr(payload.timestamp, "isoformat") else str(payload.timestamp),
+        thumbnail_url=thumbnail_url,
     )
 
     if is_intrusion:
@@ -164,6 +197,7 @@ async def post_detection(payload: DetectionIn) -> DetectionOut:
             global_id=global_id,
             camera_id=payload.camera_id,
             similarity=sim,
+            thumbnail_url=thumbnail_url,
         )
     if classification is not None:
         if classification.is_vip:
@@ -207,7 +241,7 @@ async def get_person_track(
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
-            SELECT detection_id, camera_id, detected_at, bbox, is_intrusion, similarity
+            SELECT detection_id, camera_id, detected_at, bbox, is_intrusion, similarity, thumbnail_url
             FROM detections
             WHERE global_id = $1
             ORDER BY detected_at ASC
@@ -263,7 +297,7 @@ async def get_recent_detections(limit: int = Query(default=50, le=200)):
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT detection_id, camera_id, global_id, detected_at,
-                   is_intrusion, tracklet_id, similarity
+                   is_intrusion, tracklet_id, similarity, thumbnail_url
             FROM detections
             ORDER BY detected_at DESC
             LIMIT $1
@@ -286,7 +320,8 @@ async def list_persons(limit: int = Query(default=100, le=500)):
                 p.visit_count,
                 COUNT(d.detection_id) AS detection_count,
                 BOOL_OR(d.is_intrusion) AS has_intrusion,
-                MAX(d.camera_id) AS last_camera
+                MAX(d.camera_id) AS last_camera,
+                (SELECT thumbnail_url FROM detections WHERE global_id = p.global_id AND thumbnail_url IS NOT NULL ORDER BY detected_at DESC LIMIT 1) AS last_thumbnail
             FROM persons p
             LEFT JOIN detections d ON d.global_id = p.global_id
             GROUP BY p.global_id

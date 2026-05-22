@@ -95,7 +95,9 @@ export default function App() {
           fromCamera: fromCamera,
           toCamera: d.camera_id,
           confidence: d.similarity ?? 0.9,
-          thumbnail: `https://images.unsplash.com/photo-${d.global_id % 2 === 0 ? '1507003211169-0a1dd7228f2d' : '1494790108377-be9c29b29330'}?w=100&h=100&fit=crop`
+          thumbnail: d.thumbnail_url
+            ? `${API_BASE.replace('/api/v1', '')}${d.thumbnail_url}`
+            : `https://images.unsplash.com/photo-${d.global_id % 2 === 0 ? '1507003211169-0a1dd7228f2d' : '1494790108377-be9c29b29330'}?w=100&h=100&fit=crop`
         };
       });
       setLogs(formattedLogs);
@@ -149,7 +151,9 @@ export default function App() {
             fromCamera: 'Unknown',
             toCamera: alert.camera_id || 'CAM_01',
             confidence: alert.similarity ?? 0.95,
-            thumbnail: `https://images.unsplash.com/photo-${alert.global_id % 2 === 0 ? '1507003211169-0a1dd7228f2d' : '1494790108377-be9c29b29330'}?w=100&h=100&fit=crop`
+            thumbnail: alert.thumbnail_url
+              ? `${API_BASE.replace('/api/v1', '')}${alert.thumbnail_url}`
+              : `https://images.unsplash.com/photo-${alert.global_id % 2 === 0 ? '1507003211169-0a1dd7228f2d' : '1494790108377-be9c29b29330'}?w=100&h=100&fit=crop`
           };
 
           setLogs(prev => {
@@ -692,7 +696,7 @@ const ReidLogRow: React.FC<{ log: ReidLog; onClick?: () => void }> = ({ log, onC
       onClick={onClick}
     >
       <div className="flex-shrink-0 relative">
-        <img src={log.thumbnail} alt="Person" className="w-12 h-12 rounded-lg object-cover grayscale group-hover:grayscale-0 transition-all border border-[#1f1f23]" />
+        <img src={log.thumbnail} alt="Person" className="w-12 h-12 rounded-lg object-cover transition-all border border-[#1f1f23]" />
         <div className="absolute -top-1 -left-1 bg-blue-600 text-[8px] font-bold px-1 rounded shadow-sm">MATCH</div>
       </div>
       <div className="flex-1 grid grid-cols-4 gap-4 items-center">

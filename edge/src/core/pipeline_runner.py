@@ -274,7 +274,8 @@ class PipelineRunner:
                 'timestamp': timestamp_str,
                 'bbox': [float(x) for x in v.get('bbox', [])],
                 'event_type': 'detection',
-                'is_final': v.get('is_final')
+                'is_final': v.get('is_final'),
+                'thumbnail_base64': v.get('thumbnail_base64')
             }
 
             try:

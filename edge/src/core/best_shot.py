@@ -80,7 +80,8 @@ class BestShotSelector:
                     'score': score,
                     'last_seen_frame': current_frame_idx,
                     'last_sent_frame': last_sent,
-                    'timestamp': time.time()
+                    'timestamp': time.time(),
+                    'thumbnail_base64': item.get('thumbnail_base64')
                 }
             else:
                 # 점수 갱신은 안 되었더라도 트랙 활성 상태 유지를 위해 최종 노출 프레임 인덱스만 갱신

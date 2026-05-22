@@ -90,6 +90,15 @@ if os.path.isdir(frontend_dir):
     except Exception as e:
         print(f"[startup] Frontend build failed: {e}")
 
+# 썸네일 파일 보관소 디렉토리 생성 및 마운트
+THUMBNAILS_DIR = os.path.join(BASE_DIR, "server", "data", "thumbnails")
+os.makedirs(THUMBNAILS_DIR, exist_ok=True)
+app.mount(
+    "/thumbnails",
+    StaticFiles(directory=THUMBNAILS_DIR),
+    name="thumbnails",
+)
+
 if os.path.isdir(frontend_dist):
     # 정적 파일 마운트 (js, css 등)
     app.mount(
@@ -98,10 +107,10 @@ if os.path.isdir(frontend_dist):
         name="assets",
     )
 
-    # SPA 라우팅 catch-all — API/health 경로는 제외
+    # SPA 라우팅 catch-all — API/health/thumbnails 경로는 제외
     @app.get("/{catchall:path}", include_in_schema=False)
     async def serve_react_app(catchall: str):
-        if catchall.startswith("api/") or catchall == "health":
+        if catchall.startswith("api/") or catchall.startswith("thumbnails/") or catchall == "health":
             return JSONResponse({"detail": "Not Found"}, status_code=404)
         file_path = os.path.join(frontend_dist, catchall)
         if os.path.isfile(file_path):
