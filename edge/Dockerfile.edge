@@ -14,7 +14,7 @@ COPY requirements.txt .
 # 의존성 패키지(ultralytics, boxmot 등) 설치 시 자동으로 꼬여 설치되는 opencv를 완전히 제거 후 클린 재설치
 RUN pip install --no-cache-dir -r requirements.txt && \
     pip uninstall -y opencv-python opencv-python-headless opencv-contrib-python opencv-contrib-python-headless || true && \
-    pip install --no-cache-dir opencv-python==4.8.0.76
+    pip install --no-cache-dir opencv-python==4.8.0.76 opencv-contrib-python==4.8.0.76
 
 # 4. 소스 코드 복사
 COPY . .
