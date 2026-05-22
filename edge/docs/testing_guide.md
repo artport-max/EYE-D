@@ -371,11 +371,27 @@ winget install Docker.DockerDesktop
 ```
 
 ##### 3) Mediamtx 컨테이너 실행
-Docker 설치가 완료되었다면, 외부 전송 노드에서 아래 명령어를 입력하여 Mediamtx RTSP 미디어 서버를 즉시 구동합니다.
+Docker 설치가 완료되었다면, 아래 방법 중 하나를 선택해 Mediamtx RTSP 미디어 서버를 구동합니다.
+
+**방법 A-1: 전용 구동 스크립트 실행 (추천)**
+프로젝트에서 제공하는 단독 제어 쉘 스크립트를 사용하여 편리하게 미디어 서버를 기동 및 중지할 수 있습니다.
 ```bash
-docker run --rm -it --network=host bluenviron/mediamtx:latest
+# 1. 실행 권한 부여
+chmod +x edge/tools/run_mediamtx_docker.sh
+
+# 2. 미디어 서버 구동 (백그라운드 실행)
+./edge/tools/run_mediamtx_docker.sh
+
+# 3. 미디어 서버 중지
+./edge/tools/run_mediamtx_docker.sh stop
+```
+
+**방법 A-2: Docker 커맨드 직접 실행**
+```bash
+docker run --rm -d --name mediamtx --network=host bluenviron/mediamtx:latest
 ```
 * `--network=host` 옵션을 사용하면 전송 노드의 네트워크 포트를 그대로 활용하므로 별도의 포트 포워딩 설정이 불필요합니다.
+* 백그라운드 기동 후 종료를 원할 때는 `docker stop mediamtx` 명령을 실행합니다.
 
 #### 방법 B. 바이너리 직접 실행
 1. [Mediamtx GitHub Releases](https://github.com/bluenviron/mediamtx/releases)에서 전송 노드 OS에 맞는 압축 파일을 다운로드합니다.
@@ -391,7 +407,23 @@ docker run --rm -it --network=host bluenviron/mediamtx:latest
   ```
 
 ### 5.2. FFmpeg을 이용한 다채널 무한 루프 송출
-전송 노드에서 `ffmpeg` 도구를 사용해 실제 테스트용 비디오 파일을 각각 `cam01`, `cam02` 등의 고유 RTSP 경로로 송출합니다.
+전송 노드에서 `ffmpeg` 도구를 사용해 실제 테스트용 비디오 파일을 각각 `cam01`, `cam02`, `cam03` 등의 고유 RTSP 경로로 송출합니다.
+
+**다채널 자동 송출 스크립트 이용 (추천):**
+3개의 서로 다른 비디오 스트림을 각 채널에 맞춰 백그라운드에서 한 번에 무한 루프로 송출하려면 아래 제공된 스크립트를 사용하십시오.
+```bash
+# 1. 실행 권한 부여
+chmod +x edge/tools/start_rtsp_streams.sh edge/tools/stop_rtsp_streams.sh
+
+# 2. 3채널 동시 송출 시작
+./edge/tools/start_rtsp_streams.sh
+
+# 3. 송출 프로세스 일괄 종료
+./edge/tools/stop_rtsp_streams.sh
+```
+* 해당 스크립트는 `data/` 디렉토리에 위치한 `16300000.avi`, `16300002.avi`, `g1.mp4` 비디오를 각각 `rtsp://localhost:8554/cam01`, `rtsp://localhost:8554/cam02`, `rtsp://localhost:8554/cam03` 주소로 변환 송출합니다.
+
+**수동 개별 송출:**
 
 #### 옵션 A: 원본 코덱 그대로 복사 전송 (디바이스 리소스 최소화)
 비디오 파일이 이미 RTSP 표준 규격(H.264 및 AAC)으로 인코딩되어 있다면, 재압축 과정을 생략하고 데이터 스트림만 복사해 보내는 방식이 리소스를 가장 적게 소모합니다.
