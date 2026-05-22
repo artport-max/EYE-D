@@ -3,7 +3,7 @@ torch>=2.0.0
 torchvision
 torchaudio
 ultralytics>=8.0.0
-opencv-python>=4.8.0
+# opencv-python>=4.8.0 (NVIDIA 베이스 이미지 내장 OpenCV 충돌 방지를 위해 주석 처리)
 numpy>=1.23.0,<2.0.0
 
 # Tracking & Re-ID

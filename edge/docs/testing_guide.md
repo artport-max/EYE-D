@@ -367,6 +367,13 @@ cd edge
 docker build -t eyed-edge:latest -f Dockerfile.edge .
 ```
 
+> [!TIP]
+> **패키지 변경 및 의존성 충돌 시 클린 빌드 방법 (`--no-cache`)**
+> `requirements.txt` 등의 의존성이 변경되었을 때, 도커 캐시로 인해 구버전 라이브러리가 재사용되는 것을 방지하려면 아래와 같이 `--no-cache` 옵션을 추가해야 합니다. 
+> ```bash
+> docker build --no-cache -t eyed-edge:latest -f Dockerfile.edge .
+> ```
+
 #### 4.2.3. Jetson 보드에서 컨테이너 실행 (GPU 가속 활성화)
 
 Jetson 장비에서 GPU 및 CUDA 하드웨어 가속을 정상 연동하기 위해 반드시 `--runtime nvidia` 또는 `--gpus all` 옵션을 인자로 주어야 합니다.
