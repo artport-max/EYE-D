@@ -6,19 +6,21 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /app
 
-# 2. 시스템 필수 의존성 및 공식 안정 OpenCV 패키지 설치
-# (pip 버전의 충돌을 우회하기 위해 우분투 공식 패키지 매니저의 python3-opencv를 설치합니다)
+# 2. 시스템 필수 의존성 및 공식 안정 OpenCV, Git 패키지 설치
+# (torchreid 소스 설치를 위해 git을 함께 설치합니다)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1-mesa-glx \
     libglib2.0-0 \
     python3-opencv \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # 3. 파이썬 요구 라이브러리 복사 및 설치
 COPY requirements.txt .
-# 의존성 패키지(ultralytics, boxmot 등)가 자동으로 끌고 들어오는 pip 버전 opencv를 
-# 빌드 단계에서 완전히 삭제(uninstall)하여 apt로 설치된 시스템 opencv만 깔끔하게 사용하도록 처리합니다.
+# 의존성 패키지(ultralytics, boxmot 등)가 자동으로 끌고 들어오는 pip 버전 opencv를 제거하고
+# Re-ID의 핵심인 torchreid 라이브러리를 의존성 충돌 없이(--no-deps) 설치합니다.
 RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir --no-deps git+https://github.com/KaiyangZhou/deep-person-reid.git && \
     pip uninstall -y opencv-python opencv-python-headless opencv-contrib-python opencv-contrib-python-headless || true
 
 # 4. 소스 코드 복사
