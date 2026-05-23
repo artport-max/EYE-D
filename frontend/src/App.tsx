@@ -511,7 +511,7 @@ const PersonHistory: React.FC<{ personId: string; targetImage: string | null; on
               : `https://images.unsplash.com/photo-${globalId % 2 === 0 ? '1507003211169-0a1dd7228f2d' : '1494790108377-be9c29b29330'}?w=800&h=600&fit=crop`,
             videoColor: ev.is_intrusion ? 'yellow' : 'emerald'
           }));
-          setEvents(formattedEvents);
+          setEvents(formattedEvents.reverse());
         }
       } catch (err: any) {
         setError(err.message || "Error loading history");
