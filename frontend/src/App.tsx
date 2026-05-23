@@ -16,6 +16,7 @@ import {
   Search,
   ChevronRight,
   Maximize2,
+  Minimize2,
   MoreVertical,
   Shield,
   Clock
@@ -64,6 +65,7 @@ export default function App() {
   const [currentView, setCurrentView] = useState<'dashboard' | 'history'>('dashboard');
   const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
   const [selectedCamera, setSelectedCamera] = useState<CameraConfig | null>(MOCK_CAMERAS[0]);
+  const [expandedCameraId, setExpandedCameraId] = useState<string | null>(null);
   const [systemStats, setSystemStats] = useState<SystemStats>({
     cpuUsage: 45,
     gpuUsage: 78,
@@ -375,32 +377,75 @@ export default function App() {
 
                 {/* Bottom Row: Live Video Grid */}
                 <div className="flex-1 min-h-0">
-                  <div className="grid grid-cols-2 grid-rows-2 gap-4 h-full">
-                    {MOCK_CAMERAS.map((cam, idx) => (
-                      <div 
-                        key={cam.id} 
-                        className={cn(
-                          "relative rounded-xl overflow-hidden border border-[#1f1f23] bg-black group transition-all duration-300",
-                          selectedCamera?.id === cam.id ? "ring-2 ring-blue-500/50 scale-[0.99] border-blue-500/30" : "hover:border-gray-700"
-                        )}
-                        onClick={() => setSelectedCamera(cam)}
-                      >
-                        <VideoFeed camera={cam} isActive={selectedCamera?.id === cam.id} />
-                        <div className="absolute top-4 left-4 flex items-center space-x-2 z-20">
-                          <div className={cn(
-                            "w-2 h-2 rounded-full",
-                            idx === 2 ? "bg-emerald-500 animate-pulse" : "bg-red-500 animate-pulse"
-                          )} />
-                          <span className="text-xs font-medium text-white shadow-sm drop-shadow-md">{cam.name}</span>
+                  {expandedCameraId ? (
+                    // Expanded Single Camera View
+                    MOCK_CAMERAS.filter(cam => cam.id === expandedCameraId).map((cam) => {
+                      const idx = MOCK_CAMERAS.findIndex(c => c.id === cam.id);
+                      return (
+                        <div 
+                          key={cam.id} 
+                          className="relative rounded-xl overflow-hidden border border-blue-500/30 ring-2 ring-blue-500/50 bg-black h-full w-full group cursor-pointer"
+                          onClick={() => setSelectedCamera(cam)}
+                          onDoubleClick={() => setExpandedCameraId(null)}
+                        >
+                          <VideoFeed camera={cam} isActive={selectedCamera?.id === cam.id} />
+                          <div className="absolute top-4 left-4 flex items-center space-x-2 z-20">
+                            <div className={cn(
+                              "w-2 h-2 rounded-full",
+                              idx === 2 ? "bg-emerald-500 animate-pulse" : "bg-red-500 animate-pulse"
+                            )} />
+                            <span className="text-xs font-medium text-white shadow-sm drop-shadow-md">{cam.name}</span>
+                          </div>
+                          <div className="absolute bottom-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity z-30 pointer-events-auto">
+                            <button 
+                              className="p-2 rounded-lg bg-black/50 backdrop-blur-sm text-white hover:bg-black/70 cursor-pointer pointer-events-auto"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setExpandedCameraId(null);
+                              }}
+                            >
+                              <Minimize2 size={16} />
+                            </button>
+                          </div>
                         </div>
-                        <div className="absolute bottom-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity z-20">
-                          <button className="p-2 rounded-lg bg-black/50 backdrop-blur-sm text-white hover:bg-black/70">
-                            <Maximize2 size={16} />
-                          </button>
+                      );
+                    })
+                  ) : (
+                    // 4-Split Grid View
+                    <div className="grid grid-cols-2 grid-rows-2 gap-4 h-full">
+                      {MOCK_CAMERAS.map((cam, idx) => (
+                        <div 
+                          key={cam.id} 
+                          className={cn(
+                            "relative rounded-xl overflow-hidden border border-[#1f1f23] bg-black group transition-all duration-300 cursor-pointer",
+                            selectedCamera?.id === cam.id ? "ring-2 ring-blue-500/50 scale-[0.99] border-blue-500/30" : "hover:border-gray-700"
+                          )}
+                          onClick={() => setSelectedCamera(cam)}
+                          onDoubleClick={() => setExpandedCameraId(cam.id)}
+                        >
+                          <VideoFeed camera={cam} isActive={selectedCamera?.id === cam.id} />
+                          <div className="absolute top-4 left-4 flex items-center space-x-2 z-20">
+                            <div className={cn(
+                              "w-2 h-2 rounded-full",
+                              idx === 2 ? "bg-emerald-500 animate-pulse" : "bg-red-500 animate-pulse"
+                            )} />
+                            <span className="text-xs font-medium text-white shadow-sm drop-shadow-md">{cam.name}</span>
+                          </div>
+                          <div className="absolute bottom-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity z-30 pointer-events-auto">
+                            <button 
+                              className="p-2 rounded-lg bg-black/50 backdrop-blur-sm text-white hover:bg-black/70 cursor-pointer pointer-events-auto"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setExpandedCameraId(cam.id);
+                              }}
+                            >
+                              <Maximize2 size={16} />
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
               </div>
@@ -578,24 +623,6 @@ const PersonHistory: React.FC<{ personId: string; targetImage: string | null; on
                              <div className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-black to-transparent" />
                              
                              {/* Simulation Overlay */}
-                             <motion.div 
-                               animate={{ x: [10, 40, 20, 10], y: [10, 30, 10, 10] }}
-                               transition={{ duration: 5 + idx, repeat: Infinity, ease: 'linear' }}
-                               className={cn(
-                                 "absolute border-2 w-16 h-28 z-10",
-                                 event.videoColor === 'emerald' ? 'border-emerald-500/50' : 
-                                 event.videoColor === 'blue' ? 'border-blue-500/50' : 'border-yellow-400/50'
-                               )}
-                             >
-                               <div className={cn(
-                                 "text-[6px] font-black px-1 py-0.5 text-black",
-                                 event.videoColor === 'emerald' ? 'bg-emerald-500' : 
-                                 event.videoColor === 'blue' ? 'bg-blue-500' : 'bg-yellow-400'
-                               )}>
-                                 {personId}
-                               </div>
-                             </motion.div>
-
                              <div className="absolute top-2 left-2 z-20 flex items-center space-x-1">
                                 <div className="w-1.5 h-1.5 rounded-full bg-red-600 animate-pulse" />
                                 <span className="text-[7px] font-black text-white uppercase tracking-tighter">Event Feed</span>
