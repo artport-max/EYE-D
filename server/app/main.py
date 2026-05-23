@@ -99,6 +99,13 @@ app.mount(
     name="thumbnails",
 )
 
+# 비디오 스트림 샘플 디렉토리 마운트
+app.mount(
+    "/data",
+    StaticFiles(directory=os.path.join(BASE_DIR, "data")),
+    name="data",
+)
+
 if os.path.isdir(frontend_dist):
     # 정적 파일 마운트 (js, css 등)
     app.mount(
@@ -110,7 +117,7 @@ if os.path.isdir(frontend_dist):
     # SPA 라우팅 catch-all — API/health/thumbnails 경로는 제외
     @app.get("/{catchall:path}", include_in_schema=False)
     async def serve_react_app(catchall: str):
-        if catchall.startswith("api/") or catchall.startswith("thumbnails/") or catchall == "health":
+        if catchall.startswith("api/") or catchall.startswith("thumbnails/") or catchall.startswith("data/") or catchall == "health":
             return JSONResponse({"detail": "Not Found"}, status_code=404)
         file_path = os.path.join(frontend_dist, catchall)
         if os.path.isfile(file_path):

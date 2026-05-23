@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, ReactNode } from 'react';
+import React, { useState, useEffect, useRef, ReactNode } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Camera, 
@@ -35,10 +35,10 @@ import { cn } from '@/src/lib/utils.ts';
 import type { CameraConfig, ReidLog, SystemStats } from '@/src/types/index.ts';
 
 const MOCK_CAMERAS: CameraConfig[] = [
-  { id: 'cam_0', name: 'Main Entrance', status: 'online', fps: 30, resolution: '1920x1080', bitrate: '4.2 Mbps' },
-  { id: 'cam_1', name: 'Lobby South', status: 'online', fps: 28, resolution: '1920x1080', bitrate: '3.8 Mbps' },
-  { id: 'cam_2', name: 'Restricted Area', status: 'online', fps: 30, resolution: '1920x1080', bitrate: '4.5 Mbps' },
-  { id: 'cam_3', name: 'Parking Lot', status: 'online', fps: 25, resolution: '1920x1080', bitrate: '3.1 Mbps' },
+  { id: 'cam_0', name: 'CAM 01', status: 'online', fps: 30, resolution: '1920x1080', bitrate: '4.2 Mbps' },
+  { id: 'cam_1', name: 'CAM 02', status: 'online', fps: 28, resolution: '1920x1080', bitrate: '3.8 Mbps' },
+  { id: 'cam_2', name: 'CAM 03', status: 'online', fps: 30, resolution: '1920x1080', bitrate: '4.5 Mbps' },
+  { id: 'cam_3', name: 'CAM 04', status: 'online', fps: 25, resolution: '1920x1080', bitrate: '3.1 Mbps' },
 ];
 
 const MOCK_STATS_DATA = [
@@ -659,41 +659,140 @@ const SystemMetric: React.FC<{ label: string; value: string; color: string }> = 
 }
 
 const VideoFeed: React.FC<{ camera: CameraConfig; isActive?: boolean }> = ({ camera, isActive = false }) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const pcRef = useRef<RTCPeerConnection | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isError, setIsError] = useState(false);
+
+  // WHEP URLs pointing to the MediaMTX WebRTC signaling endpoint on 192.168.45.7
+  let whepUrl = '';
+  if (camera.id === 'cam_0') {
+    whepUrl = 'http://192.168.45.7:8889/cam01/whep';
+  } else if (camera.id === 'cam_1') {
+    whepUrl = 'http://192.168.45.7:8889/cam02/whep';
+  } else if (camera.id === 'cam_2') {
+    whepUrl = 'http://192.168.45.7:8889/cam03/whep';
+  } else {
+    whepUrl = 'http://192.168.45.7:8889/cam04/whep';
+  }
+
+  useEffect(() => {
+    let active = true;
+    const video = videoRef.current;
+    if (!video) return;
+
+    // Reset states and attributes
+    setIsPlaying(false);
+    setIsError(false);
+    video.srcObject = null;
+    video.removeAttribute('src');
+
+    if (pcRef.current) {
+      pcRef.current.close();
+      pcRef.current = null;
+    }
+
+    const startStreaming = async () => {
+      try {
+        const pc = new RTCPeerConnection({
+          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        });
+        pcRef.current = pc;
+
+        pc.ontrack = (event) => {
+          if (video && event.streams && event.streams[0]) {
+            video.srcObject = event.streams[0];
+            video.removeAttribute('src');
+            video.play().catch(e => console.warn("Failed to play WHEP stream:", e));
+            setIsPlaying(true);
+            setIsError(false);
+          }
+        };
+
+        pc.addTransceiver('video', { direction: 'recvonly' });
+        pc.addTransceiver('audio', { direction: 'recvonly' });
+
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        if (!active) return;
+
+        const response = await fetch(whepUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/sdp'
+          },
+          body: offer.sdp
+        });
+
+        if (!response.ok) {
+          throw new Error(`WHEP signaling request failed: ${response.status}`);
+        }
+
+        const answerSdp = await response.text();
+        if (!active) return;
+
+        await pc.setRemoteDescription(new RTCSessionDescription({
+          type: 'answer',
+          sdp: answerSdp
+        }));
+
+        // WHEP 연결 수립 시도 후 4초 이내에 트랙(srcObject)이 공급되지 않으면 에러 상태로 처리
+        setTimeout(() => {
+          if (active && !video.srcObject) {
+            console.warn('WHEP track not received within timeout');
+            setIsError(true);
+          }
+        }, 4000);
+
+      } catch (err) {
+        console.error('WHEP playback failed:', err);
+        if (active) {
+          setIsError(true);
+        }
+      }
+    };
+
+    startStreaming();
+
+    return () => {
+      active = false;
+      if (pcRef.current) {
+        pcRef.current.close();
+        pcRef.current = null;
+      }
+      if (video) {
+        video.srcObject = null;
+        video.removeAttribute('src');
+      }
+    };
+  }, [whepUrl, camera.id]);
+
   return (
-    <div className="w-full h-full bg-[#0a0a0c] flex items-center justify-center overflow-hidden relative">
-      <div className="absolute inset-0 bg-[#0a0a0c]">
-        <div className="w-full h-full opacity-30 bg-[radial-gradient(circle_at_center,_transparent_0%,_black_100%)]" 
-             style={{ backgroundImage: `url('https://www.transparenttextures.com/patterns/carbon-fibre.png')` }} />
-      </div>
-      
-      <div className="scanline" />
+    <div className="w-full h-full bg-black flex items-center justify-center overflow-hidden relative">
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted
+        className="absolute inset-0 w-full h-full object-cover opacity-60 group-hover:opacity-85 transition-all duration-300 z-0"
+      />
+      {!isPlaying && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-10">
+          {isError ? (
+            <span className="text-[10px] font-bold text-red-500 tracking-widest uppercase">Offline / No Connection</span>
+          ) : (
+            <span className="text-[10px] font-bold text-blue-400 animate-pulse tracking-widest uppercase">Connecting stream...</span>
+          )}
+        </div>
+      )}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-black/20 pointer-events-none z-10" />
+      <div className="scanline z-10" />
 
       {/* Simulation Overlay */}
-      <div className="relative w-full h-full p-4 overflow-hidden z-10">
+      <div className="relative w-full h-full p-4 overflow-hidden z-20 pointer-events-none">
         {/* Grid pattern overlay */}
-        <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
-        
-        {/* Bounding boxes simulation */}
-        <motion.div 
-          animate={{ x: [0, 50, -20, 0], y: [0, 20, 40, 0] }}
-          transition={{ duration: 12, repeat: Infinity, ease: "linear" }}
-          className="absolute border border-emerald-500/50 w-24 h-48 flex flex-col justify-start"
-        >
-          <div className="bg-emerald-500/80 text-black text-[8px] font-black px-1 leading-tight self-start uppercase">
-            PERSON [98%]
-          </div>
-          <div className="mt-auto h-1 w-full bg-emerald-500/20" />
-        </motion.div>
-
-        <motion.div 
-          animate={{ x: [200, 150, 180, 200], y: [100, 80, 120, 100] }}
-          transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
-          className="absolute border border-blue-500/50 w-20 h-40 flex flex-col justify-start"
-        >
-          <div className="bg-blue-500/80 text-white text-[8px] font-black px-1 leading-tight self-start uppercase">
-            {camera.id === 'cam-3' ? 'RESTRICTED' : 'VISITOR'}
-          </div>
-        </motion.div>
+        <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: 'linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
       </div>
     </div>
   );
@@ -711,7 +810,7 @@ const ReidLogRow: React.FC<{ log: ReidLog; onClick?: () => void }> = ({ log, onC
     >
       <div className="flex-shrink-0 relative">
         <img src={log.thumbnail} alt="Person" className="w-12 h-12 rounded-lg object-cover transition-all border border-[#1f1f23]" />
-        <div className="absolute -top-1 -left-1 bg-blue-600 text-[8px] font-bold px-1 rounded shadow-sm">MATCH</div>
+        <div className="absolute -top-1 -left-1 bg-blue-600 text-[5.5px] font-bold px-1 rounded shadow-sm">MATCH</div>
       </div>
       <div className="flex-1 grid grid-cols-4 gap-4 items-center">
         <div className="flex flex-col">
@@ -720,9 +819,12 @@ const ReidLogRow: React.FC<{ log: ReidLog; onClick?: () => void }> = ({ log, onC
         </div>
         <div className="flex flex-col">
           <span className="text-[9px] text-gray-500 uppercase font-black tracking-widest leading-none mb-1">Movement</span>
-          <span className="text-xs text-blue-400 font-bold whitespace-nowrap overflow-hidden text-ellipsis flex items-center">
-            {log.fromCamera} <ChevronRight size={10} className="mx-1 text-gray-600" /> {log.toCamera}
-          </span>
+          <div className="text-[8px] font-bold flex flex-col leading-tight">
+            <span className="text-gray-400 truncate">{log.fromCamera}</span>
+            <span className="text-blue-400 truncate flex items-center pl-1.5">
+              <span className="text-gray-600 mr-0.5 font-normal">↓</span>{log.toCamera}
+            </span>
+          </div>
         </div>
         <div className="flex flex-col items-center">
           <span className="text-[9px] text-gray-500 uppercase font-black tracking-widest leading-none mb-1">Confidence</span>
