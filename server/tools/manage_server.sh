@@ -274,6 +274,13 @@ cleanup_server() {
                 rm -f "$LOG_FILE"
             fi
 
+            # 2.5. 저장된 썸네일 이미지 파일 제거
+            local data_dir="${SERVER_DIR}/data"
+            if [ -d "$data_dir" ]; then
+                echo -e "${YELLOW}[Cleanup] 저장된 썸네일 이미지 디렉토리 제거 ($data_dir)...${NC}"
+                rm -rf "$data_dir"
+            fi
+
             # 3. Docker DB 볼륨 포함 완전 삭제
             echo -e "${YELLOW}[Cleanup] 데이터베이스 컨테이너 및 볼륨 물리 삭제 중...${NC}"
             local sudo_prefix=$(get_docker_cmd)
