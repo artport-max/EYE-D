@@ -61,6 +61,15 @@ const WS_BASE = typeof window !== 'undefined'
   ? (window.location.port === '3000' || window.location.port === '5173' ? `ws://${window.location.hostname}:8000/api/v1` : `ws://${window.location.host}/api/v1`)
   : 'ws://localhost:8000/api/v1';
 
+const getNormalizedCamKey = (camNameOrId: string): string => {
+  const s = camNameOrId.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (s === 'cam0' || s === 'cam01') return 'cam01';
+  if (s === 'cam1' || s === 'cam02') return 'cam02';
+  if (s === 'cam2' || s === 'cam03') return 'cam03';
+  if (s === 'cam3' || s === 'cam04') return 'cam04';
+  return s;
+};
+
 export default function App() {
   const [currentView, setCurrentView] = useState<'dashboard' | 'history'>('dashboard');
   const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
@@ -74,6 +83,7 @@ export default function App() {
   });
   const [currentTime, setCurrentTime] = useState(new Date());
   const [logs, setLogs] = useState<ReidLog[]>([]);
+  const [logFilter, setLogFilter] = useState<'all' | 'cam01' | 'cam02' | 'cam03' | 'cam04'>('all');
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [todayStats, setTodayStats] = useState({
     today_count: 0,
@@ -459,11 +469,33 @@ export default function App() {
                   </div>
                   <span className="text-[10px] text-gray-500 font-mono italic">STREAMING DATA...</span>
                 </div>
+                {/* Camera Filter Tab Bar */}
+                <div className="px-4 py-2 border-b border-[#1f1f23] bg-[#0a0a0c] flex items-center space-x-1 shrink-0">
+                  {(['all', 'cam01', 'cam02', 'cam03', 'cam04'] as const).map((filter) => (
+                    <button
+                      key={filter}
+                      onClick={() => setLogFilter(filter)}
+                      className={cn(
+                        "px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider transition-all duration-200 border",
+                        logFilter === filter 
+                          ? "bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-600/10" 
+                          : "bg-transparent border-transparent text-gray-500 hover:text-gray-300 hover:bg-[#141416]"
+                      )}
+                    >
+                      {filter === 'all' ? 'ALL' : filter.replace('cam', 'CAM ')}
+                    </button>
+                  ))}
+                </div>
                 <div className="flex-1 p-3 overflow-y-auto space-y-2 scrollbar-thin scrollbar-thumb-[#1f1f23]">
                   <AnimatePresence initial={false}>
-                    {logs.map((log) => (
-                      <ReidLogRow key={log.id} log={log} onClick={() => handleShowHistory(log.personId, log.thumbnail)} />
-                    ))}
+                    {logs
+                      .filter(log => {
+                        if (logFilter === 'all') return true;
+                        return getNormalizedCamKey(log.toCamera) === logFilter;
+                      })
+                      .map((log) => (
+                        <ReidLogRow key={log.id} log={log} onClick={() => handleShowHistory(log.personId, log.thumbnail)} />
+                      ))}
                   </AnimatePresence>
                 </div>
               </aside>
