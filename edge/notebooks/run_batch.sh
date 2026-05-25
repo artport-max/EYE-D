@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────────────
+# run_batch.sh  —  여러 영상에 대해 reid_performance.ipynb 를 자동 실행합니다.
+#
+# 사용법:
+#   bash run_batch.sh /path/to/videos/*.avi
+#   bash run_batch.sh /data/cam1.avi /data/cam2.avi /data/cam3.avi
+#
+# 옵션 환경변수:
+#   OUTPUT_DIR   결과 pkl 저장 폴더  (기본값: results)
+#   MAX_FRAMES   분석할 최대 프레임   (기본값: 4000)
+#   PARALLEL     동시 실행 수         (기본값: 1, 순차 실행)
+#
+# 예시:
+#   OUTPUT_DIR=results MAX_FRAMES=2000 PARALLEL=2 bash run_batch.sh /data/*.avi
+# ─────────────────────────────────────────────────────────────────────────────
+set -euo pipefail
+
+OUTPUT_DIR="${OUTPUT_DIR:-results}"
+MAX_FRAMES="${MAX_FRAMES:-4000}"
+PARALLEL="${PARALLEL:-1}"
+
+NB_IN="$(dirname "$0")/reid_performance.ipynb"
+NB_OUT_DIR="$(dirname "$0")/outputs"
+
+mkdir -p "$NB_OUT_DIR" "$OUTPUT_DIR"
+
+if [ $# -eq 0 ]; then
+    echo "사용법: bash run_batch.sh <video1> [video2] ..."
+    exit 1
+fi
+
+if ! command -v papermill &>/dev/null; then
+    echo "[오류] papermill 이 설치되어 있지 않습니다."
+    echo "  pip install papermill"
+    exit 1
+fi
+
+echo "═══════════════════════════════════════════════════"
+echo "  Re-ID 배치 분석 시작"
+echo "  영상 수    : $#"
+echo "  결과 폴더  : $OUTPUT_DIR"
+echo "  최대 프레임: $MAX_FRAMES"
+echo "  동시 실행  : $PARALLEL"
+echo "═══════════════════════════════════════════════════"
+
+SKIP_COUNT=0
+FAIL_COUNT=0
+OK_COUNT=0
+
+run_one() {
+    local video="$1"
+    local name
+    name=$(basename "$video")
+    name="${name%.*}"
+    local nb_out="$NB_OUT_DIR/${name}.ipynb"
+
+    echo ""
+    echo "▶ 처리 중: $video"
+
+    if [ ! -e "$video" ]; then
+        echo "  ✗ 파일 없음: $video — 건너뜁니다."
+        return 0
+    fi
+
+    if papermill "$NB_IN" "$nb_out" \
+        -p VIDEO_PATH  "$video"      \
+        -p OUTPUT_DIR  "$OUTPUT_DIR" \
+        -p MAX_FRAMES  "$MAX_FRAMES" \
+        --log-output 2>&1 | grep -E "(완료|오류|Error|WARNING|완전|Executing)"; then
+        echo "  ✓ 완료 → $nb_out"
+        echo "  ✓ pkl  → $OUTPUT_DIR/${name}.pkl"
+    else
+        echo "  ✗ 실패: $video"
+    fi
+}
+
+export -f run_one
+export NB_IN NB_OUT_DIR OUTPUT_DIR MAX_FRAMES
+
+if [ "$PARALLEL" -gt 1 ]; then
+    # GNU parallel 사용 (설치된 경우)
+    if command -v parallel &>/dev/null; then
+        printf '%s\n' "$@" | parallel -j "$PARALLEL" run_one {}
+    else
+        echo "[경고] GNU parallel 없음. 순차 실행합니다."
+        for video in "$@"; do run_one "$video"; done
+    fi
+else
+    for video in "$@"; do run_one "$video"; done
+fi
+
+echo ""
+echo "═══════════════════════════════════════════════════"
+echo "  배치 실행 완료"
+echo "  pkl 결과 : $OUTPUT_DIR/"
+echo "  출력 노트북: $NB_OUT_DIR/"
+echo ""
+echo "  다음 단계: reid_aggregate.ipynb 실행"
+echo "  jupyter notebook notebooks/reid_aggregate.ipynb"
+echo "═══════════════════════════════════════════════════"
